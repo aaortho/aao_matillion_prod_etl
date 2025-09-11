@@ -1,0 +1,154 @@
+type: "orchestration"
+version: "1.0"
+pipeline:
+  components:
+    Start:
+      type: "start"
+      transitions:
+        unconditional:
+          - "CDS Item Availability Load"
+          - "CDS Item Pricing Load"
+          - "CDS Registrant Data Load"
+          - "CDS Method Read Load"
+          - "CDS Item Quota Report Load"
+          - "CDS Registration Category Load"
+          - "CDS Item Tier1 Availability Load"
+          - "CDS Registration Data Load"
+          - "CDS Setup Field Mappings Load"
+          - "CDS Setup States Provinces Load"
+      parameters:
+        componentName: "Start"
+    CDS Item Availability Load:
+      type: "run-orchestration"
+      transitions:
+        success:
+          - "Wait for All Loads"
+      parameters:
+        componentName: "CDS Item Availability Load"
+        orchestrationJob: "cds_data_ingestion/pl_cds_item_availability_historical_load.orch.yaml"
+    CDS Item Pricing Load:
+      type: "run-orchestration"
+      transitions:
+        success:
+          - "Wait for All Loads"
+      parameters:
+        componentName: "CDS Item Pricing Load"
+        orchestrationJob: "cds_data_ingestion/pl_cds_item_pricing_historical_load.orch.yaml"
+    CDS Registrant Data Load:
+      type: "run-orchestration"
+      transitions:
+        success:
+          - "Wait for All Loads"
+      parameters:
+        componentName: "CDS Registrant Data Load"
+        orchestrationJob: "cds_data_ingestion/pl_cds_registrant_data_historical_load.orch.yaml"
+    CDS Method Read Load:
+      type: "run-orchestration"
+      transitions:
+        success:
+          - "Wait for All Loads"
+      parameters:
+        componentName: "CDS Method Read Load"
+        orchestrationJob: "cds_data_ingestion/pl_cds_method_read_historical_load.orch.yaml"
+    CDS Item Quota Report Load:
+      type: "run-orchestration"
+      transitions:
+        success:
+          - "Wait for All Loads"
+      parameters:
+        componentName: "CDS Item Quota Report Load"
+        orchestrationJob: "cds_data_ingestion/pl_cds_item_quota_report_historical_load.orch.yaml"
+    CDS Registration Category Load:
+      type: "run-orchestration"
+      transitions:
+        success:
+          - "Wait for All Loads"
+      parameters:
+        componentName: "CDS Registration Category Load"
+        orchestrationJob: "cds_data_ingestion/pl_cds_registration_category_historical_load.orch.yaml"
+    CDS Item Tier1 Availability Load:
+      type: "run-orchestration"
+      transitions:
+        success:
+          - "Wait for All Loads"
+      parameters:
+        componentName: "CDS Item Tier1 Availability Load"
+        orchestrationJob: "cds_data_ingestion/pl_cds_item_tier1_availability_historical_load.orch.yaml"
+    CDS Registration Data Load:
+      type: "run-orchestration"
+      transitions:
+        success:
+          - "Wait for All Loads"
+      parameters:
+        componentName: "CDS Registration Data Load"
+        orchestrationJob: "cds_data_ingestion/pl_cds_registration_data_historical_load.orch.yaml"
+    CDS Setup Field Mappings Load:
+      type: "run-orchestration"
+      transitions:
+        success:
+          - "Wait for All Loads"
+      parameters:
+        componentName: "CDS Setup Field Mappings Load"
+        orchestrationJob: "cds_data_ingestion/pl_cds_setup_field_mappings_historical_load.orch.yaml"
+    CDS Setup States Provinces Load:
+      type: "run-orchestration"
+      transitions:
+        success:
+          - "Wait for All Loads"
+      parameters:
+        componentName: "CDS Setup States Provinces Load"
+        orchestrationJob: "cds_data_ingestion/pl_cds_setup_states_provinces_historical_load.orch.yaml"
+    Wait for All Loads:
+      type: "and"
+      parameters:
+        componentName: "Wait for All Loads"
+design:
+  components:
+    Start:
+      position:
+        x: 0
+        "y": 0
+    CDS Item Availability Load:
+      position:
+        x: 200
+        "y": -200
+    CDS Item Pricing Load:
+      position:
+        x: 200
+        "y": -150
+    CDS Registrant Data Load:
+      position:
+        x: 200
+        "y": -100
+    CDS Method Read Load:
+      position:
+        x: 200
+        "y": -50
+    CDS Item Quota Report Load:
+      position:
+        x: 200
+        "y": 0
+    CDS Registration Category Load:
+      position:
+        x: 200
+        "y": 50
+    CDS Item Tier1 Availability Load:
+      position:
+        x: 200
+        "y": 100
+    CDS Registration Data Load:
+      position:
+        x: 200
+        "y": 150
+    CDS Setup Field Mappings Load:
+      position:
+        x: 200
+        "y": 200
+    CDS Setup States Provinces Load:
+      position:
+        x: 200
+        "y": 250
+    Wait for All Loads:
+      position:
+        x: 400
+        "y": 25

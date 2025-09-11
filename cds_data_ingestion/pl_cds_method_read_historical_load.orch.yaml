@@ -1,0 +1,84 @@
+type: "orchestration"
+version: "1.0"
+pipeline:
+  components:
+    Start:
+      type: "start"
+      transitions:
+        unconditional:
+        - "Table Iterator"
+      parameters:
+        componentName: "Start"
+    Table Iterator:
+      type: "table-iterator"
+      iterationTarget: "CDS API Method Read"
+      parameters:
+        componentName: "Table Iterator"
+        mode: "Advanced"
+        query: "select bridge_key from PROD_BRONZE_DB.CDS.CDS_AUTH_KEYS"
+        concurrency: "Concurrent"
+        columnMapping1:
+        - - "BRIDGE_KEY"
+          - "v_auth_key"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    CDS API Method Read:
+      type: "modular-api-extract-input-v2"
+      parameters:
+        componentName: "CDS API Method Read"
+        componentId: "custom_v2-42592a6a-4709-47a9-84f4-1baa79265c2c"
+        inputId: "api-extract-input-v2"
+        api-extract-input-v2:
+          profile: "custom-42592a6a-4709-47a9-84f4-1baa79265c2c"
+          endpoint: "Method_Read"
+          connectionRef:
+            overrides:
+              authType: "NONE"
+          uriParams:
+          queryParams:
+          - name: "AuthKey"
+            value: "${v_auth_key}"
+          headerParams:
+          postBody:
+          pageLimit:
+          logLevel: "ERROR"
+          loadSelectedData: "No"
+        outputId: "snowflake-output-connector-v0"
+        snowflake-output-connector-v0:
+          warehouse: "[Environment Default]"
+          database: "[Environment Default]"
+          schema: "[Environment Default]"
+          tableName: "CDS_METHOD_AVAILABLE"
+          createTableMode: "APPEND"
+          cleanStagedFiles: "Yes"
+          stagePlatform: "SNOWFLAKE"
+          snowflake#internalStageType: "USER"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+  variables:
+    v_auth_key:
+      metadata:
+        type: "TEXT"
+        description: ""
+        scope: "COPIED"
+        visibility: "PUBLIC"
+      defaultValue: "A"
+design:
+  components:
+    Start:
+      position:
+        x: 0
+        "y": 0
+      tempMetlId: 1
+    Table Iterator:
+      position:
+        x: 150
+        "y": -20
+      tempMetlId: 3
+    CDS API Method Read:
+      position:
+        x: 150
+        "y": -20
+      tempMetlId: 4
