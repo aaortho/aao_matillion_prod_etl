@@ -64,7 +64,7 @@ pipeline:
         description: ""
         scope: "COPIED"
         visibility: "PUBLIC"
-      defaultValue: "a"
+      defaultValue: "BE4666DC-A56A-4B6D-B01E-5ED4BC888856"
 design:
   components:
     Start:
