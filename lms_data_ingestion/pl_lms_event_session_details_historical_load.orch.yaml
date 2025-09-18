@@ -1,0 +1,235 @@
+type: "orchestration"
+version: "1.0"
+pipeline:
+  components:
+    Start:
+      type: "start"
+      transitions:
+        unconditional:
+        - "Trncate Event Session details table"
+      parameters:
+        componentName: "Start"
+    LMS API:
+      type: "modular-api-extract-input-v2"
+      parameters:
+        componentName: "LMS API"
+        componentId: "custom_v2-b95fee52-8db0-4fe4-94d1-623e1ca69a28"
+        inputId: "api-extract-input-v2"
+        api-extract-input-v2:
+          profile: "custom-b95fee52-8db0-4fe4-94d1-623e1ca69a28"
+          endpoint: "Event_session_details"
+          connectionRef:
+            overrides:
+              authType: "NONE"
+          uriParams:
+          - name: "eventId"
+            value: "${v_event_id}"
+          queryParams:
+          headerParams:
+          postBody:
+          pageLimit:
+          logLevel: "ERROR"
+          loadSelectedData: "No"
+        outputId: "snowflake-output-connector-v0"
+        snowflake-output-connector-v0:
+          warehouse: "[Environment Default]"
+          database: "[Environment Default]"
+          schema: "LMS"
+          tableName: "EVENT_SESSION_DETAILS"
+          createTableMode: "APPEND"
+          cleanStagedFiles: "Yes"
+          stagePlatform: "SNOWFLAKE"
+          snowflake#internalStageType: "USER"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Table Iterator:
+      type: "table-iterator"
+      transitions:
+        success:
+        - "Log event session detail ingestion"
+        failure:
+        - "Log LMS API Failure"
+      iterationTarget: "LMS API"
+      parameters:
+        componentName: "Table Iterator"
+        mode: "Advanced"
+        query: "SELECT\r\n    item.value:id::STRING AS id\r\nFROM PROD_BRONZE_DB.LMS.EVENTS,\r\
+          \n     LATERAL FLATTEN(input => DATA_VALUE:data) AS item"
+        concurrency: "Concurrent"
+        columnMapping1:
+        - - "ID"
+          - "v_event_id"
+        breakOnFailure: "No"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Log event session detail ingestion:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Data Parser Event Session "
+      parameters:
+        componentName: "Log event session detail ingestion"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: "-- Log success to audit table\nINSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG\
+          \ (\n    TABLE_NAME,\n    ROW_COUNT,\n    LOAD_TIME,\n    LOAD_STATUS,\n\
+          \    ERROR_MESSAGE\n)\nSELECT \n    'EVENT_SESSION_DETAILS' AS TABLE_NAME,\n\
+          \    COUNT(*) AS ROW_COUNT,\n    CURRENT_TIMESTAMP AS LOAD_TIME,\n    'SUCCESS'\
+          \ AS LOAD_STATUS,\n    NULL AS ERROR_MESSAGE\nFROM PROD_BRONZE_DB.LMS.EVENT_SESSION_DETAILS;\n"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    'Data Parser Event Session ':
+      type: "sql-executor"
+      parameters:
+        componentName: "Data Parser Event Session "
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: |
+          MERGE INTO PROD_SILVER_DB.LMS.EVENT_SESSION_DETAILS AS target
+          USING (
+              SELECT
+                  item.value:id::STRING AS SESSION_ID,
+                  item.value:eval_id::STRING AS EVAL_ID,
+                  item.value:start_date_time::STRING AS START_TIME,
+                  item.value:end_date_time::STRING AS END_TIME,
+                  item.value:offset::STRING AS TIMEZONE,
+                  item.value:product:id::STRING AS PRODUCT_ID,
+                  item.value:product:identification::STRING AS PRODUCT_IDENTIFICATION,
+                  item.value:product:name::STRING AS PRODUCT_NAME,
+                  item.value:product:type::STRING AS PRODUCT_TYPE,
+                  item.value:title::STRING AS SESSION_TITLE
+              FROM PROD_BRONZE_DB.LMS.EVENT_SESSION_DETAILS,
+                   LATERAL FLATTEN(input => DATA_VALUE:data) AS item
+          ) AS source
+          ON target.SESSION_ID = source.SESSION_ID
+
+          WHEN MATCHED THEN
+              UPDATE SET
+                  target.EVAL_ID = source.EVAL_ID,
+                  target.START_TIME = source.START_TIME,
+                  target.END_TIME = source.END_TIME,
+                  target.TIMEZONE = source.TIMEZONE,
+                  target.PRODUCT_ID = source.PRODUCT_ID,
+                  target.PRODUCT_IDENTIFICATION = source.PRODUCT_IDENTIFICATION,
+                  target.PRODUCT_NAME = source.PRODUCT_NAME,
+                  target.PRODUCT_TYPE = source.PRODUCT_TYPE,
+                  target.SESSION_TITLE = source.SESSION_TITLE
+
+          WHEN NOT MATCHED THEN
+              INSERT (
+                  SESSION_ID,
+                  EVAL_ID,
+                  START_TIME,
+                  END_TIME,
+                  TIMEZONE,
+                  PRODUCT_ID,
+                  PRODUCT_IDENTIFICATION,
+                  PRODUCT_NAME,
+                  PRODUCT_TYPE,
+                  SESSION_TITLE
+              )
+              VALUES (
+                  source.SESSION_ID,
+                  source.EVAL_ID,
+                  source.START_TIME,
+                  source.END_TIME,
+                  source.TIMEZONE,
+                  source.PRODUCT_ID,
+                  source.PRODUCT_IDENTIFICATION,
+                  source.PRODUCT_NAME,
+                  source.PRODUCT_TYPE,
+                  source.SESSION_TITLE
+              );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Trncate Event Session details table:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Table Iterator"
+      parameters:
+        componentName: "Trncate Event Session details table"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: "TRUNCATE TABLE PROD_BRONZE_DB.LMS.EVENT_SESSION_DETAILS;"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Log LMS API Failure:
+      type: "sql-executor"
+      parameters:
+        componentName: "Log LMS API Failure"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: |
+          -- Log failure to audit table with error details
+          INSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG (
+              TABLE_NAME,
+              ROW_COUNT,
+              LOAD_TIME,
+              LOAD_STATUS,
+              ERROR_MESSAGE
+          )
+          VALUES (
+              'EVENT_SESSION_DETAILS',
+              -1,  -- Negative count indicates failure
+              CURRENT_TIMESTAMP,
+              'FAILED',  -- Load status indicating failure
+              'Failed Unknown error occurred during LMS API batch processing'
+          );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+  variables:
+    v_event_id:
+      metadata:
+        type: "TEXT"
+        description: ""
+        scope: "COPIED"
+        visibility: "PUBLIC"
+      defaultValue: "39d0efc1-5d3c-40f8-ad2b-85d7310998aa"
+design:
+  components:
+    Start:
+      position:
+        x: -380
+        "y": 20
+      tempMetlId: 1
+    LMS API:
+      position:
+        x: -120
+        "y": 0
+      tempMetlId: 3
+    Table Iterator:
+      position:
+        x: -120
+        "y": 0
+      tempMetlId: 4
+    Log event session detail ingestion:
+      position:
+        x: 10
+        "y": 20
+      tempMetlId: 6
+    'Data Parser Event Session ':
+      position:
+        x: 140
+        "y": 20
+      tempMetlId: 7
+    Trncate Event Session details table:
+      position:
+        x: -250
+        "y": 20
+      tempMetlId: 8
+    Log LMS API Failure:
+      position:
+        x: 80
+        "y": -80
+      tempMetlId: 9

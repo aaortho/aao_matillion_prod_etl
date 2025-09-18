@@ -1,0 +1,334 @@
+type: "orchestration"
+version: "1.0"
+pipeline:
+  components:
+    Start:
+      type: "start"
+      transitions:
+        unconditional:
+        - "Trncate order details table"
+      parameters:
+        componentName: "Start"
+    LMS API:
+      type: "modular-api-extract-input-v2"
+      parameters:
+        componentName: "LMS API"
+        componentId: "custom_v2-b95fee52-8db0-4fe4-94d1-623e1ca69a28"
+        inputId: "api-extract-input-v2"
+        api-extract-input-v2:
+          profile: "custom-b95fee52-8db0-4fe4-94d1-623e1ca69a28"
+          endpoint: "Order_details"
+          connectionRef:
+            overrides:
+              authType: "NONE"
+          uriParams:
+          - name: "orderUuid"
+            value: "${v_order_uuid}"
+          queryParams:
+          headerParams:
+          postBody:
+          pageLimit:
+          logLevel: "ERROR"
+          loadSelectedData: "No"
+        outputId: "snowflake-output-connector-v0"
+        snowflake-output-connector-v0:
+          warehouse: "[Environment Default]"
+          database: "[Environment Default]"
+          schema: "LMS"
+          tableName: "ORDER_DETAILS"
+          createTableMode: "APPEND"
+          cleanStagedFiles: "Yes"
+          stagePlatform: "SNOWFLAKE"
+          snowflake#internalStageType: "USER"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Table Iterator:
+      type: "table-iterator"
+      transitions:
+        success:
+        - "Log order detail ingestion"
+        failure:
+        - "Log LMS API Failure"
+      iterationTarget: "LMS API"
+      parameters:
+        componentName: "Table Iterator"
+        mode: "Advanced"
+        query: "SELECT\r\n    item.value:uuid::STRING AS uuid\r\nFROM PROD_BRONZE_DB.LMS.ORDERS,\r\
+          \n     LATERAL FLATTEN(input => DATA_VALUE:data) AS item"
+        concurrency: "Concurrent"
+        columnMapping1:
+        - - "UUID"
+          - "v_order_uuid"
+        breakOnFailure: "No"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Log order detail ingestion:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Data Parser Order Details"
+      parameters:
+        componentName: "Log order detail ingestion"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: "-- Log success to audit table\nINSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG\
+          \ (\n    TABLE_NAME,\n    ROW_COUNT,\n    LOAD_TIME,\n    LOAD_STATUS,\n\
+          \    ERROR_MESSAGE\n)\nSELECT \n    'ORDER_DETAILS' AS TABLE_NAME,\n   \
+          \ COUNT(*) AS ROW_COUNT,\n    CURRENT_TIMESTAMP AS LOAD_TIME,\n    'SUCCESS'\
+          \ AS LOAD_STATUS,\n    NULL AS ERROR_MESSAGE\nFROM PROD_BRONZE_DB.LMS.ORDER_DETAILS;\n"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Data Parser Order Details:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Log order item ingestion "
+      parameters:
+        componentName: "Data Parser Order Details"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: "MERGE INTO PROD_SILVER_DB.LMS.ORDER_DETAILS AS target\nUSING (\n\
+          \    SELECT \n        DATA_VALUE:id::STRING AS order_id,\n        DATA_VALUE:created_at::TIMESTAMP\
+          \ AS created_at,\n        DATA_VALUE:updated_at::TIMESTAMP AS updated_at,\n\
+          \        DATA_VALUE:status::STRING AS order_status,\n        DATA_VALUE:requires_shipping::BOOLEAN\
+          \ AS requires_shipping,\n        DATA_VALUE:reference_number::STRING AS\
+          \ reference_number,\n        DATA_VALUE:conversion_id::STRING AS conversion_id,\n\
+          \        DATA_VALUE:external_reference::STRING AS external_reference,\n\n\
+          \        -- Billing address fields\n        DATA_VALUE:billing_address:city::STRING\
+          \ AS billing_city,\n        DATA_VALUE:billing_address:state::STRING AS\
+          \ billing_state,\n        DATA_VALUE:billing_address:zip::STRING AS billing_zip,\n\
+          \        DATA_VALUE:billing_address:country::STRING AS billing_country,\n\
+          \        DATA_VALUE:billing_address:line1::STRING AS billing_line1,\n  \
+          \      DATA_VALUE:billing_address:line2::STRING AS billing_line2,\n    \
+          \    DATA_VALUE:billing_address:name::STRING AS billing_name,\n        DATA_VALUE:billing_address:phone::STRING\
+          \ AS billing_phone,\n        DATA_VALUE:billing_address:company::STRING\
+          \ AS billing_company,\n\n        -- User details\n        DATA_VALUE:user:id::STRING\
+          \ AS user_id,\n        DATA_VALUE:user:first_name::STRING AS user_first_name,\n\
+          \        DATA_VALUE:user:last_name::STRING AS user_last_name,\n        DATA_VALUE:user:email::STRING\
+          \ AS user_email,\n        DATA_VALUE:user:api_username::STRING AS user_api_username,\n\
+          \n        -- Current totals\n        (DATA_VALUE:current_totals:discount::NUMBER)/100\
+          \ AS current_discount,\n        (DATA_VALUE:current_totals:list_price_total::NUMBER)/100\
+          \ AS current_list_price,\n        (DATA_VALUE:current_totals:refund::NUMBER)/100\
+          \ AS current_refund,\n        (DATA_VALUE:current_totals:subtotal::NUMBER)/100\
+          \ AS current_subtotal,\n        (DATA_VALUE:current_totals:tax::NUMBER)/100\
+          \ AS current_tax,\n        (DATA_VALUE:current_totals:total::NUMBER)/100\
+          \ AS current_total\n    FROM PROD_BRONZE_DB.LMS.ORDER_DETAILS\n) AS source\n\
+          ON target.order_id = source.order_id\n\nWHEN MATCHED THEN\n    UPDATE SET\n\
+          \        target.created_at = source.created_at,\n        target.updated_at\
+          \ = source.updated_at,\n        target.order_status = source.order_status,\n\
+          \        target.requires_shipping = source.requires_shipping,\n        target.reference_number\
+          \ = source.reference_number,\n        target.conversion_id = source.conversion_id,\n\
+          \        target.external_reference = source.external_reference,\n      \
+          \  target.billing_city = source.billing_city,\n        target.billing_state\
+          \ = source.billing_state,\n        target.billing_zip = source.billing_zip,\n\
+          \        target.billing_country = source.billing_country,\n        target.billing_line1\
+          \ = source.billing_line1,\n        target.billing_line2 = source.billing_line2,\n\
+          \        target.billing_name = source.billing_name,\n        target.billing_phone\
+          \ = source.billing_phone,\n        target.billing_company = source.billing_company,\n\
+          \        target.user_id = source.user_id,\n        target.user_first_name\
+          \ = source.user_first_name,\n        target.user_last_name = source.user_last_name,\n\
+          \        target.user_email = source.user_email,\n        target.user_api_username\
+          \ = source.user_api_username,\n        target.current_discount = source.current_discount,\n\
+          \        target.current_list_price = source.current_list_price,\n      \
+          \  target.current_refund = source.current_refund,\n        target.current_subtotal\
+          \ = source.current_subtotal,\n        target.current_tax = source.current_tax,\n\
+          \        target.current_total = source.current_total\n\nWHEN NOT MATCHED\
+          \ THEN\n    INSERT (\n        order_id,\n        created_at,\n        updated_at,\n\
+          \        order_status,\n        requires_shipping,\n        reference_number,\n\
+          \        conversion_id,\n        external_reference,\n        billing_city,\n\
+          \        billing_state,\n        billing_zip,\n        billing_country,\n\
+          \        billing_line1,\n        billing_line2,\n        billing_name,\n\
+          \        billing_phone,\n        billing_company,\n        user_id,\n  \
+          \      user_first_name,\n        user_last_name,\n        user_email,\n\
+          \        user_api_username,\n        current_discount,\n        current_list_price,\n\
+          \        current_refund,\n        current_subtotal,\n        current_tax,\n\
+          \        current_total\n    )\n    VALUES (\n        source.order_id,\n\
+          \        source.created_at,\n        source.updated_at,\n        source.order_status,\n\
+          \        source.requires_shipping,\n        source.reference_number,\n \
+          \       source.conversion_id,\n        source.external_reference,\n    \
+          \    source.billing_city,\n        source.billing_state,\n        source.billing_zip,\n\
+          \        source.billing_country,\n        source.billing_line1,\n      \
+          \  source.billing_line2,\n        source.billing_name,\n        source.billing_phone,\n\
+          \        source.billing_company,\n        source.user_id,\n        source.user_first_name,\n\
+          \        source.user_last_name,\n        source.user_email,\n        source.user_api_username,\n\
+          \        source.current_discount,\n        source.current_list_price,\n\
+          \        source.current_refund,\n        source.current_subtotal,\n    \
+          \    source.current_tax,\n        source.current_total\n    );\n"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    'Log order item ingestion ':
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Data Parser Order Items"
+      parameters:
+        componentName: "Log order item ingestion "
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: "-- Log success to audit table for order items\nINSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG\
+          \ (\n    TABLE_NAME,\n    ROW_COUNT,\n    LOAD_TIME,\n    LOAD_STATUS,\n\
+          \    ERROR_MESSAGE\n)\nSELECT \n    'ORDER_ITEMS' AS TABLE_NAME,\n    COUNT(*)\
+          \ AS ROW_COUNT,\n    CURRENT_TIMESTAMP AS LOAD_TIME,\n    'SUCCESS' AS LOAD_STATUS,\n\
+          \    NULL AS ERROR_MESSAGE\nFROM PROD_BRONZE_DB.LMS.ORDER_DETAILS;\n"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Data Parser Order Items:
+      type: "sql-executor"
+      parameters:
+        componentName: "Data Parser Order Items"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: "MERGE INTO PROD_SILVER_DB.LMS.ORDER_ITEMS AS target\nUSING (\n\
+          \    SELECT \n        DATA_VALUE:id::STRING AS order_id,\n        item.value:id::STRING\
+          \ AS item_id,\n        item.value:type::STRING AS item_type,\n        item.value:status::STRING\
+          \ AS item_status,\n        item.value:updated_at::STRING AS item_updated_at,\n\
+          \        item.value:current_quantity::NUMBER AS current_quantity,\n    \
+          \    item.value:original_quantity::NUMBER AS original_quantity,\n\n    \
+          \    -- Totals\n        (item.value:current_totals:total::NUMBER)/100 AS\
+          \ item_current_total,\n        (item.value:original_totals:total::NUMBER)/100\
+          \ AS item_original_total,\n\n        -- Product details\n        item.value:product_details:id::STRING\
+          \ AS product_id,\n        item.value:product_details:name::STRING AS product_name,\n\
+          \        (item.value:product_details:price::NUMBER)/100 AS product_price,\n\
+          \        item.value:product_details:price_type::STRING AS price_type,\n\n\
+          \        -- Shipment details\n        item.value:shipment_details:tracking_id::STRING\
+          \ AS tracking_id,\n        item.value:shipment_details:tracking_link::STRING\
+          \ AS tracking_link\n    FROM PROD_BRONZE_DB.LMS.ORDER_DETAILS,\n       \
+          \  LATERAL FLATTEN(input => DATA_VALUE:order_items) AS item\n) AS source\n\
+          ON target.item_id = source.item_id\nAND target.order_id = source.order_id\n\
+          \nWHEN MATCHED THEN\n    UPDATE SET\n        target.order_id = source.order_id,\n\
+          \        target.item_type = source.item_type,\n        target.item_status\
+          \ = source.item_status,\n        target.item_updated_at = source.item_updated_at,\n\
+          \        target.current_quantity = source.current_quantity,\n        target.original_quantity\
+          \ = source.original_quantity,\n        target.item_current_total = source.item_current_total,\n\
+          \        target.item_original_total = source.item_original_total,\n    \
+          \    target.product_id = source.product_id,\n        target.product_name\
+          \ = source.product_name,\n        target.product_price = source.product_price,\n\
+          \        target.price_type = source.price_type,\n        target.tracking_id\
+          \ = source.tracking_id,\n        target.tracking_link = source.tracking_link\n\
+          \nWHEN NOT MATCHED THEN\n    INSERT (\n        order_id,\n        item_id,\n\
+          \        item_type,\n        item_status,\n        item_updated_at,\n  \
+          \      current_quantity,\n        original_quantity,\n        item_current_total,\n\
+          \        item_original_total,\n        product_id,\n        product_name,\n\
+          \        product_price,\n        price_type,\n        tracking_id,\n   \
+          \     tracking_link\n    )\n    VALUES (\n        source.order_id,\n   \
+          \     source.item_id,\n        source.item_type,\n        source.item_status,\n\
+          \        source.item_updated_at,\n        source.current_quantity,\n   \
+          \     source.original_quantity,\n        source.item_current_total,\n  \
+          \      source.item_original_total,\n        source.product_id,\n       \
+          \ source.product_name,\n        source.product_price,\n        source.price_type,\n\
+          \        source.tracking_id,\n        source.tracking_link\n    );\n"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Trncate order details table:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Table Iterator"
+      parameters:
+        componentName: "Trncate order details table"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: "TRUNCATE TABLE PROD_BRONZE_DB.LMS.ORDER_DETAILS;"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Log LMS API Failure:
+      type: "sql-executor"
+      parameters:
+        componentName: "Log LMS API Failure"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: |
+          -- Log failure to audit table with error details
+          INSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG (
+              TABLE_NAME,
+              ROW_COUNT,
+              LOAD_TIME,
+              LOAD_STATUS,
+              ERROR_MESSAGE
+          )
+          VALUES (
+              'ORDER_DETAILS',
+              -1,  -- Negative count indicates failure
+              CURRENT_TIMESTAMP,
+              'FAILED',  -- Load status indicating failure
+              'Failed Unknown error occurred during LMS API batch processing'
+          ),
+          (
+              'ORDER_ITEMS',
+              -1,  -- Negative count indicates failure
+              CURRENT_TIMESTAMP,
+              'FAILED',  -- Load status indicating failure
+              'Failed Unknown error occurred during LMS API batch processing'
+          )
+          ;
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+  variables:
+    v_order_uuid:
+      metadata:
+        type: "TEXT"
+        description: ""
+        scope: "COPIED"
+        visibility: "PUBLIC"
+      defaultValue: "39d0efc1"
+design:
+  components:
+    Start:
+      position:
+        x: -340
+        "y": 20
+      tempMetlId: 1
+    LMS API:
+      position:
+        x: -120
+        "y": 0
+      tempMetlId: 3
+    Table Iterator:
+      position:
+        x: -120
+        "y": 0
+      tempMetlId: 4
+    Log order detail ingestion:
+      position:
+        x: 10
+        "y": 20
+      tempMetlId: 6
+    Data Parser Order Details:
+      position:
+        x: 140
+        "y": 20
+      tempMetlId: 7
+    'Log order item ingestion ':
+      position:
+        x: 290
+        "y": 20
+      tempMetlId: 8
+    Data Parser Order Items:
+      position:
+        x: 430
+        "y": 20
+      tempMetlId: 9
+    Trncate order details table:
+      position:
+        x: -230
+        "y": 20
+      tempMetlId: 10
+    Log LMS API Failure:
+      position:
+        x: 80
+        "y": -80
+      tempMetlId: 11

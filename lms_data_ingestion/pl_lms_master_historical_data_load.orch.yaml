@@ -20,6 +20,8 @@ pipeline:
       transitions:
         success:
         - "Log Events Ingestion"
+        failure:
+        - "Log Events API Failure"
       parameters:
         componentName: "LMS EVENTS"
         componentId: "custom_v2-b95fee52-8db0-4fe4-94d1-623e1ca69a28"
@@ -55,6 +57,8 @@ pipeline:
       transitions:
         success:
         - "Log Facilities Ingestion"
+        failure:
+        - "Log Facilities API Failure"
       parameters:
         componentName: "LMS FACILITIES"
         componentId: "custom_v2-b95fee52-8db0-4fe4-94d1-623e1ca69a28"
@@ -90,6 +94,8 @@ pipeline:
       transitions:
         success:
         - "Log Orders Ingestion"
+        failure:
+        - "Log Orders API Failure"
       parameters:
         componentName: "LMS ORDERS"
         componentId: "custom_v2-b95fee52-8db0-4fe4-94d1-623e1ca69a28"
@@ -125,6 +131,8 @@ pipeline:
       transitions:
         success:
         - "Log Speakers Ingestion"
+        failure:
+        - "Log Speakers API Failure"
       parameters:
         componentName: "LMS SPEAKERS"
         componentId: "custom_v2-b95fee52-8db0-4fe4-94d1-623e1ca69a28"
@@ -160,6 +168,8 @@ pipeline:
       transitions:
         success:
         - "Log Accreditation Ingestion"
+        failure:
+        - "Log Accreditation API Failure"
       parameters:
         componentName: "LMS ACCREDITATION"
         componentId: "custom_v2-b95fee52-8db0-4fe4-94d1-623e1ca69a28"
@@ -195,6 +205,8 @@ pipeline:
       transitions:
         success:
         - "Log Products Ingestion"
+        failure:
+        - "Log Products API Failure"
       parameters:
         componentName: "LMS PRODUCTS"
         componentId: "custom_v2-b95fee52-8db0-4fe4-94d1-623e1ca69a28"
@@ -230,6 +242,8 @@ pipeline:
       transitions:
         success:
         - "Log Users Ingestion"
+        failure:
+        - "Log Users API Failure"
       parameters:
         componentName: "LMS USERS"
         componentId: "custom_v2-b95fee52-8db0-4fe4-94d1-623e1ca69a28"
@@ -269,9 +283,11 @@ pipeline:
         componentName: "Log Events Ingestion"
         scriptLocation: "Component"
         declareSqlVariables: "Include all"
-        sqlScript: "INSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG\nSELECT \n    'EVENTS'\
-          \ as TABLE_NAME,\n    COUNT(*) as ROW_COUNT,\n    CURRENT_TIMESTAMP as CHECK_TIME\n\
-          FROM PROD_BRONZE_DB.LMS.EVENTS;\n"
+        sqlScript: "-- Log success to audit table\nINSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG\
+          \ (\n    TABLE_NAME,\n    ROW_COUNT,\n    LOAD_TIME,\n    LOAD_STATUS,\n\
+          \    ERROR_MESSAGE\n)\nSELECT \n    'EVENTS' AS TABLE_NAME,\n    COUNT(*)\
+          \ AS ROW_COUNT,\n    CURRENT_TIMESTAMP AS LOAD_TIME,\n    'SUCCESS' AS LOAD_STATUS,\n\
+          \    NULL AS ERROR_MESSAGE\nFROM PROD_BRONZE_DB.LMS.EVENTS;\n"
     Log Facilities Ingestion:
       type: "sql-executor"
       transitions:
@@ -281,9 +297,11 @@ pipeline:
         componentName: "Log Facilities Ingestion"
         scriptLocation: "Component"
         declareSqlVariables: "Include all"
-        sqlScript: "INSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG\nSELECT \n    'FACILITIES'\
-          \ as TABLE_NAME,\n    COUNT(*) as ROW_COUNT,\n    CURRENT_TIMESTAMP as CHECK_TIME\n\
-          FROM PROD_BRONZE_DB.LMS.FACILITIES;\n"
+        sqlScript: "-- Log success to audit table\nINSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG\
+          \ (\n    TABLE_NAME,\n    ROW_COUNT,\n    LOAD_TIME,\n    LOAD_STATUS,\n\
+          \    ERROR_MESSAGE\n)\nSELECT \n    'FACILITIES' AS TABLE_NAME,\n    COUNT(*)\
+          \ AS ROW_COUNT,\n    CURRENT_TIMESTAMP AS LOAD_TIME,\n    'SUCCESS' AS LOAD_STATUS,\n\
+          \    NULL AS ERROR_MESSAGE\nFROM PROD_BRONZE_DB.LMS.FACILITIES;\n"
     Log Orders Ingestion:
       type: "sql-executor"
       transitions:
@@ -293,9 +311,11 @@ pipeline:
         componentName: "Log Orders Ingestion"
         scriptLocation: "Component"
         declareSqlVariables: "Include all"
-        sqlScript: "INSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG\nSELECT \n    'ORDERS'\
-          \ as TABLE_NAME,\n    COUNT(*) as ROW_COUNT,\n    CURRENT_TIMESTAMP as CHECK_TIME\n\
-          FROM PROD_BRONZE_DB.LMS.ORDERS;\n"
+        sqlScript: "-- Log success to audit table\nINSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG\
+          \ (\n    TABLE_NAME,\n    ROW_COUNT,\n    LOAD_TIME,\n    LOAD_STATUS,\n\
+          \    ERROR_MESSAGE\n)\nSELECT \n    'ORDERS' AS TABLE_NAME,\n    COUNT(*)\
+          \ AS ROW_COUNT,\n    CURRENT_TIMESTAMP AS LOAD_TIME,\n    'SUCCESS' AS LOAD_STATUS,\n\
+          \    NULL AS ERROR_MESSAGE\nFROM PROD_BRONZE_DB.LMS.ORDERS;\n"
     Log Speakers Ingestion:
       type: "sql-executor"
       transitions:
@@ -305,9 +325,11 @@ pipeline:
         componentName: "Log Speakers Ingestion"
         scriptLocation: "Component"
         declareSqlVariables: "Include all"
-        sqlScript: "INSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG\nSELECT \n    'SPEAKERS'\
-          \ as TABLE_NAME,\n    COUNT(*) as ROW_COUNT,\n    CURRENT_TIMESTAMP as CHECK_TIME\n\
-          FROM PROD_BRONZE_DB.LMS.SPEAKERS;\n"
+        sqlScript: "-- Log success to audit table\nINSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG\
+          \ (\n    TABLE_NAME,\n    ROW_COUNT,\n    LOAD_TIME,\n    LOAD_STATUS,\n\
+          \    ERROR_MESSAGE\n)\nSELECT \n    'SPEAKERS' AS TABLE_NAME,\n    COUNT(*)\
+          \ AS ROW_COUNT,\n    CURRENT_TIMESTAMP AS LOAD_TIME,\n    'SUCCESS' AS LOAD_STATUS,\n\
+          \    NULL AS ERROR_MESSAGE\nFROM PROD_BRONZE_DB.LMS.SPEAKERS;\n"
     Log Accreditation Ingestion:
       type: "sql-executor"
       transitions:
@@ -317,9 +339,11 @@ pipeline:
         componentName: "Log Accreditation Ingestion"
         scriptLocation: "Component"
         declareSqlVariables: "Include all"
-        sqlScript: "INSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG\nSELECT \n    'ACCREDITATION'\
-          \ as TABLE_NAME,\n    COUNT(*) as ROW_COUNT,\n    CURRENT_TIMESTAMP as CHECK_TIME\n\
-          FROM PROD_BRONZE_DB.LMS.ACCREDITATION;\n"
+        sqlScript: "-- Log success to audit table\nINSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG\
+          \ (\n    TABLE_NAME,\n    ROW_COUNT,\n    LOAD_TIME,\n    LOAD_STATUS,\n\
+          \    ERROR_MESSAGE\n)\nSELECT \n    'ACCREDITATION' AS TABLE_NAME,\n   \
+          \ COUNT(*) AS ROW_COUNT,\n    CURRENT_TIMESTAMP AS LOAD_TIME,\n    'SUCCESS'\
+          \ AS LOAD_STATUS,\n    NULL AS ERROR_MESSAGE\nFROM PROD_BRONZE_DB.LMS.ACCREDITATION;\n"
     Log Products Ingestion:
       type: "sql-executor"
       transitions:
@@ -329,9 +353,11 @@ pipeline:
         componentName: "Log Products Ingestion"
         scriptLocation: "Component"
         declareSqlVariables: "Include all"
-        sqlScript: "INSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG\nSELECT \n    'PRODUCTS'\
-          \ as TABLE_NAME,\n    COUNT(*) as ROW_COUNT,\n    CURRENT_TIMESTAMP as CHECK_TIME\n\
-          FROM PROD_BRONZE_DB.LMS.PRODUCTS;\n"
+        sqlScript: "-- Log success to audit table\nINSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG\
+          \ (\n    TABLE_NAME,\n    ROW_COUNT,\n    LOAD_TIME,\n    LOAD_STATUS,\n\
+          \    ERROR_MESSAGE\n)\nSELECT \n    'PRODUCTS' AS TABLE_NAME,\n    COUNT(*)\
+          \ AS ROW_COUNT,\n    CURRENT_TIMESTAMP AS LOAD_TIME,\n    'SUCCESS' AS LOAD_STATUS,\n\
+          \    NULL AS ERROR_MESSAGE\nFROM PROD_BRONZE_DB.LMS.PRODUCTS;\n"
     Log Users Ingestion:
       type: "sql-executor"
       transitions:
@@ -341,11 +367,16 @@ pipeline:
         componentName: "Log Users Ingestion"
         scriptLocation: "Component"
         declareSqlVariables: "Include all"
-        sqlScript: "INSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG\nSELECT \n    'USERS'\
-          \ as TABLE_NAME,\n    COUNT(*) as ROW_COUNT,\n    CURRENT_TIMESTAMP as CHECK_TIME\n\
-          FROM PROD_BRONZE_DB.LMS.USERS;\n"
+        sqlScript: "-- Log success to audit table\nINSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG\
+          \ (\n    TABLE_NAME,\n    ROW_COUNT,\n    LOAD_TIME,\n    LOAD_STATUS,\n\
+          \    ERROR_MESSAGE\n)\nSELECT \n    'USERS' AS TABLE_NAME,\n    COUNT(*)\
+          \ AS ROW_COUNT,\n    CURRENT_TIMESTAMP AS LOAD_TIME,\n    'SUCCESS' AS LOAD_STATUS,\n\
+          \    NULL AS ERROR_MESSAGE\nFROM PROD_BRONZE_DB.LMS.USERS;\n"
     'Data Parser Speakers ':
       type: "sql-executor"
+      transitions:
+        success:
+        - "Speaker Details Pipeline"
       parameters:
         componentName: "Data Parser Speakers "
         scriptLocation: "Component"
@@ -469,6 +500,9 @@ pipeline:
         updateScalarVariables:
     Data Parser Orders:
       type: "sql-executor"
+      transitions:
+        success:
+        - "Order Details Pipeline"
       parameters:
         componentName: "Data Parser Orders"
         scriptLocation: "Component"
@@ -504,6 +538,9 @@ pipeline:
         updateScalarVariables:
     Data Parser Events:
       type: "sql-executor"
+      transitions:
+        success:
+        - "Event Session Details Pipeline"
       parameters:
         componentName: "Data Parser Events"
         scriptLocation: "Component"
@@ -530,6 +567,9 @@ pipeline:
         updateScalarVariables:
     Data Parser Products:
       type: "sql-executor"
+      transitions:
+        success:
+        - "Product Details Pipeline"
       parameters:
         componentName: "Data Parser Products"
         scriptLocation: "Component"
@@ -588,115 +628,372 @@ pipeline:
       postProcessing:
         updateOutputMessage:
         updateScalarVariables:
+    Log Events API Failure:
+      type: "sql-executor"
+      parameters:
+        componentName: "Log Events API Failure"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: |
+          -- Log failure to audit table with error details
+          INSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG (
+              TABLE_NAME,
+              ROW_COUNT,
+              LOAD_TIME,
+              LOAD_STATUS,
+              ERROR_MESSAGE
+          )
+          VALUES (
+              'EVENTS',
+              -1,  -- Negative count indicates failure
+              CURRENT_TIMESTAMP,
+              'FAILED',  -- Load status indicating failure
+              'Failed: Unknown error occurred during LMS Events API processing'
+          );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Log Facilities API Failure:
+      type: "sql-executor"
+      parameters:
+        componentName: "Log Facilities API Failure"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: |
+          -- Log failure to audit table with error details
+          INSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG (
+              TABLE_NAME,
+              ROW_COUNT,
+              LOAD_TIME,
+              LOAD_STATUS,
+              ERROR_MESSAGE
+          )
+          VALUES (
+              'FACILITIES',
+              -1,  -- Negative count indicates failure
+              CURRENT_TIMESTAMP,
+              'FAILED',  -- Load status indicating failure
+              'Failed: Unknown error occurred during LMS Facilities API processing'
+          );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Log Orders API Failure:
+      type: "sql-executor"
+      parameters:
+        componentName: "Log Orders API Failure"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: |
+          -- Log failure to audit table with error details
+          INSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG (
+              TABLE_NAME,
+              ROW_COUNT,
+              LOAD_TIME,
+              LOAD_STATUS,
+              ERROR_MESSAGE
+          )
+          VALUES (
+              'ORDERS',
+              -1,  -- Negative count indicates failure
+              CURRENT_TIMESTAMP,
+              'FAILED',  -- Load status indicating failure
+              'Failed: Unknown error occurred during LMS Orders API processing'
+          );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Log Speakers API Failure:
+      type: "sql-executor"
+      parameters:
+        componentName: "Log Speakers API Failure"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: |
+          -- Log failure to audit table with error details
+          INSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG (
+              TABLE_NAME,
+              ROW_COUNT,
+              LOAD_TIME,
+              LOAD_STATUS,
+              ERROR_MESSAGE
+          )
+          VALUES (
+              'SPEAKERS',
+              -1,  -- Negative count indicates failure
+              CURRENT_TIMESTAMP,
+              'FAILED',  -- Load status indicating failure
+              'Failed: Unknown error occurred during LMS Speakers API processing'
+          );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Log Accreditation API Failure:
+      type: "sql-executor"
+      parameters:
+        componentName: "Log Accreditation API Failure"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: |
+          -- Log failure to audit table with error details
+          INSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG (
+              TABLE_NAME,
+              ROW_COUNT,
+              LOAD_TIME,
+              LOAD_STATUS,
+              ERROR_MESSAGE
+          )
+          VALUES (
+              'ACCREDITATION',
+              -1,  -- Negative count indicates failure
+              CURRENT_TIMESTAMP,
+              'FAILED',  -- Load status indicating failure
+              'Failed: Unknown error occurred during LMS Accreditation API processing'
+          );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Log Products API Failure:
+      type: "sql-executor"
+      parameters:
+        componentName: "Log Products API Failure"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: |
+          -- Log failure to audit table with error details
+          INSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG (
+              TABLE_NAME,
+              ROW_COUNT,
+              LOAD_TIME,
+              LOAD_STATUS,
+              ERROR_MESSAGE
+          )
+          VALUES (
+              'PRODUCTS',
+              -1,  -- Negative count indicates failure
+              CURRENT_TIMESTAMP,
+              'FAILED',  -- Load status indicating failure
+              'Failed: Unknown error occurred during LMS Products API processing'
+          );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Log Users API Failure:
+      type: "sql-executor"
+      parameters:
+        componentName: "Log Users API Failure"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: |
+          -- Log failure to audit table with error details
+          INSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG (
+              TABLE_NAME,
+              ROW_COUNT,
+              LOAD_TIME,
+              LOAD_STATUS,
+              ERROR_MESSAGE
+          )
+          VALUES (
+              'USERS',
+              -1,  -- Negative count indicates failure
+              CURRENT_TIMESTAMP,
+              'FAILED',  -- Load status indicating failure
+              'Failed: Unknown error occurred during LMS Users API processing'
+          );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Speaker Details Pipeline:
+      type: "run-orchestration"
+      parameters:
+        componentName: "Speaker Details Pipeline"
+        orchestrationJob: "lms_data_ingestion/pl_lms_speaker_details_historical_load.orch.yaml"
+    Order Details Pipeline:
+      type: "run-orchestration"
+      parameters:
+        componentName: "Order Details Pipeline"
+        orchestrationJob: "lms_data_ingestion/pl_lms_order_details_historical_load.orch.yaml"
+    Event Session Details Pipeline:
+      type: "run-orchestration"
+      parameters:
+        componentName: "Event Session Details Pipeline"
+        orchestrationJob: "lms_data_ingestion/pl_lms_event_session_details_historical_load.orch.yaml"
+    Product Details Pipeline:
+      type: "run-orchestration"
+      parameters:
+        componentName: "Product Details Pipeline"
+        orchestrationJob: "lms_data_ingestion/pl_lms_product_details_historical_load.orch.yaml"
 design:
   components:
     Start:
       position:
-        x: -60
+        x: -310
         "y": 220
       tempMetlId: 1
     LMS EVENTS:
       position:
         x: 240
-        "y": 160
+        "y": 110
       tempMetlId: 2
     LMS FACILITIES:
       position:
         x: 240
-        "y": 230
+        "y": 270
       tempMetlId: 3
     LMS ORDERS:
       position:
-        x: 240
-        "y": 310
+        x: 250
+        "y": 440
       tempMetlId: 4
     LMS SPEAKERS:
       position:
-        x: 240
-        "y": -20
+        x: 230
+        "y": -220
       tempMetlId: 5
     LMS ACCREDITATION:
       position:
         x: 240
-        "y": 70
+        "y": -50
       tempMetlId: 6
     LMS PRODUCTS:
       position:
-        x: 240
-        "y": 390
+        x: 250
+        "y": 590
       tempMetlId: 7
     LMS USERS:
       position:
-        x: 240
-        "y": 480
+        x: 250
+        "y": 740
       tempMetlId: 8
     Log Events Ingestion:
       position:
-        x: 400
-        "y": 160
+        x: 390
+        "y": 110
       tempMetlId: 9
     Log Facilities Ingestion:
       position:
-        x: 400
-        "y": 230
+        x: 390
+        "y": 270
       tempMetlId: 10
     Log Orders Ingestion:
       position:
-        x: 400
-        "y": 310
+        x: 390
+        "y": 440
       tempMetlId: 11
     Log Speakers Ingestion:
       position:
-        x: 400
-        "y": -20
+        x: 390
+        "y": -220
       tempMetlId: 12
     Log Accreditation Ingestion:
       position:
-        x: 400
-        "y": 70
+        x: 390
+        "y": -50
       tempMetlId: 13
     Log Products Ingestion:
       position:
-        x: 400
-        "y": 390
+        x: 390
+        "y": 590
       tempMetlId: 14
     Log Users Ingestion:
       position:
-        x: 400
-        "y": 480
+        x: 390
+        "y": 740
       tempMetlId: 15
     'Data Parser Speakers ':
       position:
-        x: 550
-        "y": -20
+        x: 530
+        "y": -220
       tempMetlId: 16
     Data Parser Accreditation:
       position:
-        x: 550
-        "y": 70
+        x: 530
+        "y": -50
       tempMetlId: 17
     Data Parser Facilities:
       position:
-        x: 550
-        "y": 230
+        x: 540
+        "y": 270
       tempMetlId: 18
     Data Parser Orders:
       position:
         x: 550
-        "y": 310
+        "y": 440
       tempMetlId: 19
     Data Parser Events:
       position:
-        x: 550
-        "y": 160
+        x: 530
+        "y": 110
       tempMetlId: 20
     Data Parser Products:
       position:
-        x: 550
-        "y": 390
+        x: 530
+        "y": 590
       tempMetlId: 21
     Data Parser Users:
       position:
-        x: 550
-        "y": 480
+        x: 540
+        "y": 740
       tempMetlId: 22
+    Log Events API Failure:
+      position:
+        x: 460
+        "y": 20
+      tempMetlId: 23
+    Log Facilities API Failure:
+      position:
+        x: 460
+        "y": 180
+      tempMetlId: 24
+    Log Orders API Failure:
+      position:
+        x: 460
+        "y": 350
+      tempMetlId: 25
+    Log Speakers API Failure:
+      position:
+        x: 460
+        "y": -300
+      tempMetlId: 26
+    Log Accreditation API Failure:
+      position:
+        x: 460
+        "y": -140
+      tempMetlId: 27
+    Log Products API Failure:
+      position:
+        x: 460
+        "y": 510
+      tempMetlId: 28
+    Log Users API Failure:
+      position:
+        x: 460
+        "y": 660
+      tempMetlId: 29
+    Speaker Details Pipeline:
+      position:
+        x: 680
+        "y": -220
+      tempMetlId: 30
+    Order Details Pipeline:
+      position:
+        x: 690
+        "y": 440
+      tempMetlId: 32
+    Event Session Details Pipeline:
+      position:
+        x: 690
+        "y": 110
+      tempMetlId: 34
+    Product Details Pipeline:
+      position:
+        x: 690
+        "y": 590
+      tempMetlId: 35

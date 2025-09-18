@@ -1,0 +1,266 @@
+type: "orchestration"
+version: "1.0"
+pipeline:
+  components:
+    Start:
+      type: "start"
+      transitions:
+        unconditional:
+        - "Truncate product details table"
+      parameters:
+        componentName: "Start"
+    LMS API:
+      type: "modular-api-extract-input-v2"
+      parameters:
+        componentName: "LMS API"
+        componentId: "custom_v2-b95fee52-8db0-4fe4-94d1-623e1ca69a28"
+        inputId: "api-extract-input-v2"
+        api-extract-input-v2:
+          profile: "custom-b95fee52-8db0-4fe4-94d1-623e1ca69a28"
+          endpoint: "Product_details"
+          connectionRef:
+            overrides:
+              authType: "NONE"
+          uriParams:
+          - name: "productId"
+            value: "${v_product_id}"
+          queryParams:
+          headerParams:
+          postBody:
+          pageLimit:
+          logLevel: "ERROR"
+          loadSelectedData: "No"
+        outputId: "snowflake-output-connector-v0"
+        snowflake-output-connector-v0:
+          warehouse: "[Environment Default]"
+          database: "[Environment Default]"
+          schema: "LMS"
+          tableName: "PRODUCT_DETAILS"
+          createTableMode: "APPEND"
+          cleanStagedFiles: "Yes"
+          stagePlatform: "SNOWFLAKE"
+          snowflake#internalStageType: "USER"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Table Iterator:
+      type: "table-iterator"
+      transitions:
+        success:
+        - "Log product detail ingestion"
+        failure:
+        - "Log LMS API Failure"
+      iterationTarget: "LMS API"
+      parameters:
+        componentName: "Table Iterator"
+        mode: "Advanced"
+        query: "SELECT\r\n    item.value:id::STRING AS id\r\nFROM PROD_BRONZE_DB.LMS.PRODUCTS,\r\
+          \n     LATERAL FLATTEN(input => DATA_VALUE:data) AS item"
+        concurrency: "Concurrent"
+        columnMapping1:
+        - - "ID"
+          - "v_product_id"
+        breakOnFailure: "No"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Log product detail ingestion:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Data Parser Product Details "
+      parameters:
+        componentName: "Log product detail ingestion"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: "-- Log success to audit table\nINSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG\
+          \ (\n    TABLE_NAME,\n    ROW_COUNT,\n    LOAD_TIME,\n    LOAD_STATUS,\n\
+          \    ERROR_MESSAGE\n)\nSELECT \n    'PRODUCT_DETAILS' AS TABLE_NAME,\n \
+          \   COUNT(*) AS ROW_COUNT,\n    CURRENT_TIMESTAMP AS LOAD_TIME,\n    'SUCCESS'\
+          \ AS LOAD_STATUS,\n    NULL AS ERROR_MESSAGE\nFROM PROD_BRONZE_DB.LMS.PRODUCT_DETAILS;"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    'Data Parser Product Details ':
+      type: "sql-executor"
+      parameters:
+        componentName: "Data Parser Product Details "
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: |
+          MERGE INTO PROD_SILVER_DB.LMS.PRODUCT_DETAILS AS target
+          USING (
+              SELECT
+                  data_value:"api_key"::STRING AS api_key,
+                  data_value:"created_at"::TIMESTAMP_TZ AS created_at,
+                  data_value:"description"::STRING AS description,
+                  data_value:"discoverable"::BOOLEAN AS discoverable,
+                  data_value:"icon_url"::STRING AS icon_url,
+                  data_value:"id"::STRING AS id,
+                  data_value:"identification"::STRING AS identification,
+                  data_value:"name"::STRING AS name,
+                  data_value:"status"::STRING AS status,
+                  data_value:"teaser"::STRING AS teaser,
+                  data_value:"type"::STRING AS type,
+
+                  -- Prices array: first element
+                  data_value:"prices"[0]:"api_key"::STRING AS price_api_key,
+                  data_value:"prices"[0]:"min_quantity"::NUMBER AS price_min_quantity,
+                  data_value:"prices"[0]:"price"::NUMBER AS price_amount,
+                  data_value:"prices"[0]:"type"::STRING AS price_type,
+
+                  -- Nested group object inside prices[0]
+                  data_value:"prices"[0]:"group":"id"::STRING AS price_group_id,
+                  data_value:"prices"[0]:"group":"name"::STRING AS price_group_name
+              FROM PROD_BRONZE_DB.LMS.PRODUCT_DETAILS
+          ) AS source
+          ON target.id = source.id
+
+          WHEN MATCHED THEN
+              UPDATE SET
+                  target.api_key = source.api_key,
+                  target.created_at = source.created_at,
+                  target.description = source.description,
+                  target.discoverable = source.discoverable,
+                  target.icon_url = source.icon_url,
+                  target.identification = source.identification,
+                  target.name = source.name,
+                  target.status = source.status,
+                  target.teaser = source.teaser,
+                  target.type = source.type,
+                  target.price_api_key = source.price_api_key,
+                  target.price_min_quantity = source.price_min_quantity,
+                  target.price_amount = source.price_amount,
+                  target.price_type = source.price_type,
+                  target.price_group_id = source.price_group_id,
+                  target.price_group_name = source.price_group_name
+
+          WHEN NOT MATCHED THEN
+              INSERT (
+                  api_key,
+                  created_at,
+                  description,
+                  discoverable,
+                  icon_url,
+                  id,
+                  identification,
+                  name,
+                  status,
+                  teaser,
+                  type,
+                  price_api_key,
+                  price_min_quantity,
+                  price_amount,
+                  price_type,
+                  price_group_id,
+                  price_group_name
+              )
+              VALUES (
+                  source.api_key,
+                  source.created_at,
+                  source.description,
+                  source.discoverable,
+                  source.icon_url,
+                  source.id,
+                  source.identification,
+                  source.name,
+                  source.status,
+                  source.teaser,
+                  source.type,
+                  source.price_api_key,
+                  source.price_min_quantity,
+                  source.price_amount,
+                  source.price_type,
+                  source.price_group_id,
+                  source.price_group_name
+              );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Truncate product details table:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Table Iterator"
+      parameters:
+        componentName: "Truncate product details table"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: "TRUNCATE TABLE PROD_BRONZE_DB.LMS.PRODUCT_DETAILS;"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Log LMS API Failure:
+      type: "sql-executor"
+      parameters:
+        componentName: "Log LMS API Failure"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: |
+          -- Log failure to audit table with error details
+          INSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG (
+              TABLE_NAME,
+              ROW_COUNT,
+              LOAD_TIME,
+              LOAD_STATUS,
+              ERROR_MESSAGE
+          )
+          VALUES (
+              'PRODUCT_DETAILS',
+              -1,  -- Negative count indicates failure
+              CURRENT_TIMESTAMP,
+              'FAILED',  -- Load status indicating failure
+              'Failed Unknown error occurred during LMS API batch processing'
+          );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+  variables:
+    v_product_id:
+      metadata:
+        type: "TEXT"
+        description: ""
+        scope: "COPIED"
+        visibility: "PUBLIC"
+      defaultValue: "39d0efc1-5d3c-40f8-ad2b-85d7310998aa"
+design:
+  components:
+    Start:
+      position:
+        x: -360
+        "y": 20
+      tempMetlId: 1
+    LMS API:
+      position:
+        x: -120
+        "y": 0
+      tempMetlId: 3
+    Table Iterator:
+      position:
+        x: -120
+        "y": 0
+      tempMetlId: 4
+    Log product detail ingestion:
+      position:
+        x: 10
+        "y": 20
+      tempMetlId: 6
+    'Data Parser Product Details ':
+      position:
+        x: 140
+        "y": 20
+      tempMetlId: 7
+    Truncate product details table:
+      position:
+        x: -240
+        "y": 20
+      tempMetlId: 8
+    Log LMS API Failure:
+      position:
+        x: 80
+        "y": -80
+      tempMetlId: 9
