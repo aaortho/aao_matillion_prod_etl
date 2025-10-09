@@ -1,0 +1,157 @@
+type: "orchestration"
+version: "1.0"
+pipeline:
+  components:
+    Start:
+      type: "start"
+      transitions:
+        unconditional:
+        - "LMS ORDERS"
+      parameters:
+        componentName: "Start"
+    LMS ORDERS:
+      type: "modular-api-extract-input-v2"
+      transitions:
+        success:
+        - "Log Orders Ingestion"
+        failure:
+        - "Log Orders API Failure"
+      parameters:
+        componentName: "LMS ORDERS"
+        componentId: "custom_v2-b95fee52-8db0-4fe4-94d1-623e1ca69a28"
+        inputId: "api-extract-input-v2"
+        api-extract-input-v2:
+          profile: "custom-b95fee52-8db0-4fe4-94d1-623e1ca69a28"
+          endpoint: "Orders"
+          connectionRef:
+            overrides:
+              authType: "NONE"
+          uriParams:
+          queryParams:
+          headerParams:
+          postBody:
+          pageLimit:
+          logLevel: "ERROR"
+          loadSelectedData: "No"
+        outputId: "snowflake-output-connector-v0"
+        snowflake-output-connector-v0:
+          warehouse: "[Environment Default]"
+          database: "[Environment Default]"
+          schema: "LMS"
+          tableName: "ORDERS"
+          createTableMode: "TRUNCATE_AND_INSERT"
+          cleanStagedFiles: "Yes"
+          stagePlatform: "SNOWFLAKE"
+          snowflake#internalStageType: "USER"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Log Orders Ingestion:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Data Parser Orders"
+      parameters:
+        componentName: "Log Orders Ingestion"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include all"
+        sqlScript: "-- Log success to audit table\nINSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG\
+          \ (\n    TABLE_NAME,\n    ROW_COUNT,\n    LOAD_TIME,\n    LOAD_STATUS,\n\
+          \    ERROR_MESSAGE\n)\nSELECT \n    'ORDERS' AS TABLE_NAME,\n    COUNT(*)\
+          \ AS ROW_COUNT,\n    CURRENT_TIMESTAMP AS LOAD_TIME,\n    'SUCCESS' AS LOAD_STATUS,\n\
+          \    NULL AS ERROR_MESSAGE\nFROM PROD_BRONZE_DB.LMS.ORDERS;\n"
+    Data Parser Orders:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Order Details Pipeline"
+      parameters:
+        componentName: "Data Parser Orders"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: "MERGE INTO PROD_SILVER_DB.LMS.ORDERS AS target\r\nUSING (\r\n\
+          \    SELECT\r\n        item.value:uuid::STRING AS uuid,\r\n        item.value:created_at::TIMESTAMP\
+          \ AS created_at,\r\n        item.value:external_reference::STRING AS external_reference,\r\
+          \n        item.value:status::STRING AS status,\r\n\r\n        item.value:user.id::STRING\
+          \ AS user_id,\r\n        item.value:user.api_username::STRING AS api_username,\r\
+          \n        item.value:user.email::STRING AS user_email,\r\n        item.value:user.first_name::STRING\
+          \ AS first_name,\r\n        item.value:user.last_name::STRING AS last_name,\r\
+          \n\r\n        (item.value:current_totals.total::NUMBER)/100 AS current_total\r\
+          \n    FROM PROD_BRONZE_DB.LMS.ORDERS,\r\n         LATERAL FLATTEN(input\
+          \ => DATA_VALUE:data) AS item\r\n) AS source\r\nON target.uuid = source.uuid\r\
+          \n\r\nWHEN MATCHED THEN\r\n    UPDATE SET\r\n        target.created_at =\
+          \ source.created_at,\r\n        target.external_reference = source.external_reference,\r\
+          \n        target.status = source.status,\r\n        target.user_id = source.user_id,\r\
+          \n        target.api_username = source.api_username,\r\n        target.user_email\
+          \ = source.user_email,\r\n        target.first_name = source.first_name,\r\
+          \n        target.last_name = source.last_name,\r\n        target.current_total\
+          \ = source.current_total\r\n\r\nWHEN NOT MATCHED THEN\r\n    INSERT (\r\n\
+          \        uuid,\r\n        created_at,\r\n        external_reference,\r\n\
+          \        status,\r\n        user_id,\r\n        api_username,\r\n      \
+          \  user_email,\r\n        first_name,\r\n        last_name,\r\n        current_total\r\
+          \n    )\r\n    VALUES (\r\n        source.uuid,\r\n        source.created_at,\r\
+          \n        source.external_reference,\r\n        source.status,\r\n     \
+          \   source.user_id,\r\n        source.api_username,\r\n        source.user_email,\r\
+          \n        source.first_name,\r\n        source.last_name,\r\n        source.current_total\r\
+          \n    );\r\n"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Log Orders API Failure:
+      type: "sql-executor"
+      parameters:
+        componentName: "Log Orders API Failure"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: |
+          -- Log failure to audit table with error details
+          INSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG (
+              TABLE_NAME,
+              ROW_COUNT,
+              LOAD_TIME,
+              LOAD_STATUS,
+              ERROR_MESSAGE
+          )
+          VALUES (
+              'ORDERS',
+              -1,  -- Negative count indicates failure
+              CURRENT_TIMESTAMP,
+              'FAILED',  -- Load status indicating failure
+              'Failed: Unknown error occurred during LMS Orders API processing'
+          );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Order Details Pipeline:
+      type: "run-orchestration"
+      parameters:
+        componentName: "Order Details Pipeline"
+        orchestrationJob: "lms_data_ingestion/pl_lms_order_details_historical_load.orch.yaml"
+design:
+  components:
+    Start:
+      position:
+        x: 0
+        "y": 0
+    LMS ORDERS:
+      position:
+        x: 160
+        "y": 0
+    Log Orders Ingestion:
+      position:
+        x: 320
+        "y": 0
+    Data Parser Orders:
+      position:
+        x: 480
+        "y": 0
+    Log Orders API Failure:
+      position:
+        x: 320
+        "y": -80
+    Order Details Pipeline:
+      position:
+        x: 640
+        "y": 0

@@ -1,0 +1,144 @@
+type: "orchestration"
+version: "1.0"
+pipeline:
+  components:
+    Start:
+      type: "start"
+      transitions:
+        unconditional:
+        - "LMS FACILITIES"
+      parameters:
+        componentName: "Start"
+    LMS FACILITIES:
+      type: "modular-api-extract-input-v2"
+      transitions:
+        success:
+        - "Log Facilities Ingestion"
+        failure:
+        - "Log Facilities API Failure"
+      parameters:
+        componentName: "LMS FACILITIES"
+        componentId: "custom_v2-b95fee52-8db0-4fe4-94d1-623e1ca69a28"
+        inputId: "api-extract-input-v2"
+        api-extract-input-v2:
+          profile: "custom-b95fee52-8db0-4fe4-94d1-623e1ca69a28"
+          endpoint: "Facilities"
+          connectionRef:
+            overrides:
+              authType: "NONE"
+          uriParams:
+          queryParams:
+          headerParams:
+          postBody:
+          pageLimit:
+          logLevel: "ERROR"
+          loadSelectedData: "No"
+        outputId: "snowflake-output-connector-v0"
+        snowflake-output-connector-v0:
+          warehouse: "[Environment Default]"
+          database: "[Environment Default]"
+          schema: "LMS"
+          tableName: "FACILITIES"
+          createTableMode: "TRUNCATE_AND_INSERT"
+          cleanStagedFiles: "Yes"
+          stagePlatform: "SNOWFLAKE"
+          snowflake#internalStageType: "USER"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Log Facilities Ingestion:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Data Parser Facilities"
+      parameters:
+        componentName: "Log Facilities Ingestion"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include all"
+        sqlScript: "-- Log success to audit table\nINSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG\
+          \ (\n    TABLE_NAME,\n    ROW_COUNT,\n    LOAD_TIME,\n    LOAD_STATUS,\n\
+          \    ERROR_MESSAGE\n)\nSELECT \n    'FACILITIES' AS TABLE_NAME,\n    COUNT(*)\
+          \ AS ROW_COUNT,\n    CURRENT_TIMESTAMP AS LOAD_TIME,\n    'SUCCESS' AS LOAD_STATUS,\n\
+          \    NULL AS ERROR_MESSAGE\nFROM PROD_BRONZE_DB.LMS.FACILITIES;\n"
+    Data Parser Facilities:
+      type: "sql-executor"
+      parameters:
+        componentName: "Data Parser Facilities"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: "MERGE INTO PROD_SILVER_DB.LMS.FACILITIES AS target\r\nUSING (\r\
+          \n    SELECT\r\n        item.value:id::STRING AS id,\r\n        item.value:name::STRING\
+          \ AS name,\r\n        item.value:description::STRING AS description,\r\n\
+          \        item.value:address_1::STRING AS address_1,\r\n        item.value:address_2::STRING\
+          \ AS address_2,\r\n        item.value:city::STRING AS city,\r\n        item.value:state::STRING\
+          \ AS state,\r\n        item.value:zipcode::STRING AS zipcode,\r\n      \
+          \  item.value:country::STRING AS country,\r\n        item.value:phone::STRING\
+          \ AS phone,\r\n        item.value:website::STRING AS website\r\n    FROM\
+          \ PROD_BRONZE_DB.LMS.FACILITIES,\r\n         LATERAL FLATTEN(input => DATA_VALUE:data)\
+          \ AS item\r\n) AS source\r\nON target.ID = source.id\r\n\r\nWHEN MATCHED\
+          \ THEN\r\n    UPDATE SET\r\n        target.NAME = source.name,\r\n     \
+          \   target.DESCRIPTION = source.description,\r\n        target.ADDRESS_1\
+          \ = source.address_1,\r\n        target.ADDRESS_2 = source.address_2,\r\n\
+          \        target.CITY = source.city,\r\n        target.STATE = source.state,\r\
+          \n        target.ZIPCODE = source.zipcode,\r\n        target.COUNTRY = source.country,\r\
+          \n        target.PHONE = source.phone,\r\n        target.WEBSITE = source.website\r\
+          \n\r\nWHEN NOT MATCHED THEN\r\n    INSERT (\r\n        ID,\r\n        NAME,\r\
+          \n        DESCRIPTION,\r\n        ADDRESS_1,\r\n        ADDRESS_2,\r\n \
+          \       CITY,\r\n        STATE,\r\n        ZIPCODE,\r\n        COUNTRY,\r\
+          \n        PHONE,\r\n        WEBSITE\r\n    )\r\n    VALUES (\r\n       \
+          \ source.id,\r\n        source.name,\r\n        source.description,\r\n\
+          \        source.address_1,\r\n        source.address_2,\r\n        source.city,\r\
+          \n        source.state,\r\n        source.zipcode,\r\n        source.country,\r\
+          \n        source.phone,\r\n        source.website\r\n    );\r\n"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Log Facilities API Failure:
+      type: "sql-executor"
+      parameters:
+        componentName: "Log Facilities API Failure"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: |
+          -- Log failure to audit table with error details
+          INSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG (
+              TABLE_NAME,
+              ROW_COUNT,
+              LOAD_TIME,
+              LOAD_STATUS,
+              ERROR_MESSAGE
+          )
+          VALUES (
+              'FACILITIES',
+              -1,  -- Negative count indicates failure
+              CURRENT_TIMESTAMP,
+              'FAILED',  -- Load status indicating failure
+              'Failed: Unknown error occurred during LMS Facilities API processing'
+          );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+design:
+  components:
+    Start:
+      position:
+        x: 0
+        "y": 0
+    LMS FACILITIES:
+      position:
+        x: 160
+        "y": 0
+    Log Facilities Ingestion:
+      position:
+        x: 320
+        "y": 0
+    Data Parser Facilities:
+      position:
+        x: 480
+        "y": 0
+    Log Facilities API Failure:
+      position:
+        x: 320
+        "y": -80

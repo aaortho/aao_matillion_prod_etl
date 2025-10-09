@@ -1,0 +1,184 @@
+type: "orchestration"
+version: "1.0"
+pipeline:
+  components:
+    Start:
+      type: "start"
+      transitions:
+        unconditional:
+        - "Events Pipeline"
+        - "Facilities Pipeline"
+        - "Orders Pipeline"
+        - "Speakers Pipeline"
+        - "Accreditation Pipeline"
+        - "Products Pipeline"
+        - "Users Pipeline"
+      parameters:
+        componentName: "Start"
+    Events Pipeline:
+      type: "run-orchestration"
+      transitions:
+        success:
+        - "Run pl_lms_event_session_details_historical_load"
+      parameters:
+        componentName: "Events Pipeline"
+        orchestrationJob: "lms_data_ingestion/LMS Historical data ingestion/pl_lms_events_load.orch.yaml"
+    Facilities Pipeline:
+      type: "run-orchestration"
+      parameters:
+        componentName: "Facilities Pipeline"
+        orchestrationJob: "lms_data_ingestion/LMS Historical data ingestion/pl_lms_facilities_load.orch.yaml"
+    Orders Pipeline:
+      type: "run-orchestration"
+      transitions:
+        success:
+        - "Run pl_lms_order_details_historical_load"
+      parameters:
+        componentName: "Orders Pipeline"
+        orchestrationJob: "lms_data_ingestion/LMS Historical data ingestion/pl_lms_orders_load.orch.yaml"
+    Speakers Pipeline:
+      type: "run-orchestration"
+      transitions:
+        success:
+        - "Run pl_lms_speaker_details_historical_load"
+      parameters:
+        componentName: "Speakers Pipeline"
+        orchestrationJob: "lms_data_ingestion/LMS Historical data ingestion/pl_lms_speakers_load.orch.yaml"
+    Accreditation Pipeline:
+      type: "run-orchestration"
+      parameters:
+        componentName: "Accreditation Pipeline"
+        orchestrationJob: "lms_data_ingestion/LMS Historical data ingestion/pl_lms_accreditation_load.orch.yaml"
+    Products Pipeline:
+      type: "run-orchestration"
+      transitions:
+        success:
+        - "Run pl_lms_product_details_historical_load"
+      parameters:
+        componentName: "Products Pipeline"
+        orchestrationJob: "lms_data_ingestion/LMS Historical data ingestion/pl_lms_products_load.orch.yaml"
+    Users Pipeline:
+      type: "run-orchestration"
+      parameters:
+        componentName: "Users Pipeline"
+        orchestrationJob: "lms_data_ingestion/LMS Historical data ingestion/pl_lms_users_load.orch.yaml"
+    Run pl_lms_event_session_details_historical_load:
+      type: "run-orchestration"
+      transitions:
+        success:
+        - "Run pl_lms_archieved_event_user_watch_activity_load"
+      parameters:
+        componentName: "Run pl_lms_event_session_details_historical_load"
+        orchestrationJob: "lms_data_ingestion/LMS Historical data ingestion/pl_lms_event_session_details_historical_load.orch.yaml"
+        setScalarVariables:
+        setGridVariables:
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Run pl_lms_order_details_historical_load:
+      type: "run-orchestration"
+      parameters:
+        componentName: "Run pl_lms_order_details_historical_load"
+        orchestrationJob: "lms_data_ingestion/LMS Historical data ingestion/pl_lms_order_details_historical_load.orch.yaml"
+        setScalarVariables:
+        setGridVariables:
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Run pl_lms_product_details_historical_load:
+      type: "run-orchestration"
+      parameters:
+        componentName: "Run pl_lms_product_details_historical_load"
+        orchestrationJob: "lms_data_ingestion/LMS Historical data ingestion/pl_lms_product_details_historical_load.orch.yaml"
+        setScalarVariables:
+        setGridVariables:
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Run pl_lms_speaker_details_historical_load:
+      type: "run-orchestration"
+      parameters:
+        componentName: "Run pl_lms_speaker_details_historical_load"
+        orchestrationJob: "lms_data_ingestion/LMS Historical data ingestion/pl_lms_speaker_details_historical_load.orch.yaml"
+        setScalarVariables:
+        setGridVariables:
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Run pl_lms_archieved_event_user_watch_activity_load:
+      type: "run-orchestration"
+      parameters:
+        componentName: "Run pl_lms_archieved_event_user_watch_activity_load"
+        orchestrationJob: "lms_data_ingestion/LMS Historical data ingestion/pl_lms_archieved_event_user_watch_activity_load.orch.yaml"
+        setScalarVariables:
+        setGridVariables:
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+design:
+  components:
+    Start:
+      position:
+        x: -240
+        "y": 0
+      tempMetlId: 1
+    Events Pipeline:
+      position:
+        x: 200
+        "y": -260
+      tempMetlId: 2
+    Facilities Pipeline:
+      position:
+        x: 200
+        "y": -90
+      tempMetlId: 3
+    Orders Pipeline:
+      position:
+        x: 200
+        "y": -10
+      tempMetlId: 4
+    Speakers Pipeline:
+      position:
+        x: 200
+        "y": 220
+      tempMetlId: 5
+    Accreditation Pipeline:
+      position:
+        x: 200
+        "y": -170
+      tempMetlId: 6
+    Products Pipeline:
+      position:
+        x: 200
+        "y": 110
+      tempMetlId: 7
+    Users Pipeline:
+      position:
+        x: 200
+        "y": 320
+      tempMetlId: 8
+    Run pl_lms_event_session_details_historical_load:
+      position:
+        x: 360
+        "y": -260
+      tempMetlId: 9
+    Run pl_lms_order_details_historical_load:
+      position:
+        x: 360
+        "y": -10
+      tempMetlId: 11
+    Run pl_lms_product_details_historical_load:
+      position:
+        x: 360
+        "y": 110
+      tempMetlId: 12
+    Run pl_lms_speaker_details_historical_load:
+      position:
+        x: 360
+        "y": 220
+      tempMetlId: 13
+    Run pl_lms_archieved_event_user_watch_activity_load:
+      position:
+        x: 530
+        "y": -260
+      tempMetlId: 14

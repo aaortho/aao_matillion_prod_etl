@@ -1,0 +1,120 @@
+type: "orchestration"
+version: "1.0"
+pipeline:
+  components:
+    Start:
+      type: "start"
+      transitions:
+        unconditional:
+        - "Table Iterator"
+      parameters:
+        componentName: "Start"
+    Table Iterator:
+      type: "table-iterator"
+      transitions:
+        success:
+        - "correlating event data with user event watch history  "
+      iterationTarget: "Run Orchestration"
+      parameters:
+        componentName: "Table Iterator"
+        mode: "Advanced"
+        query: "select distinct product_id from PROD_BRONZE_DB.LMS.EVENT_SESSION_DETAILS\r\
+          \nwhere event_id = '${v_event_id}'"
+        concurrency: "Sequential"
+        columnMapping1:
+        - - "PRODUCT_ID"
+          - "v_sessionproduct_id"
+        breakOnFailure: "Yes"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Run Orchestration:
+      type: "run-orchestration"
+      parameters:
+        componentName: "Run Orchestration"
+        orchestrationJob: "lms_data_ingestion/LMS Historical data ingestion/pl_lms_archieved_event_user_watch_activity_session_transformation.orch.yaml"
+        setScalarVariables:
+        - - "v_sessionproduct_id"
+          - "${v_sessionproduct_id}"
+        - - "v_event_id"
+          - "${v_event_id}"
+        setGridVariables:
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    'correlating event data with user event watch history  ':
+      type: "sql-executor"
+      transitions:
+        success:
+        - "SQL Script"
+      parameters:
+        componentName: "correlating event data with user event watch history  "
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: "INSERT INTO PROD_BRONZE_DB.LMS.ARCHIVED_EVENT_USER_WATCH_ACTIVITY\r\
+          \nSELECT \r\n    variable.EVENT_ID AS EVENT_ID,\r\n    d.SESSIONPRODUCT_ID,\r\
+          \n    d.user_id,\r\n    d.api_username,\r\n    d.email,\r\n    d.first_name,\r\
+          \n    d.last_name,\r\n    d.total_time,\r\n    d.total_playing_time\r\n\
+          FROM \r\n    (SELECT \r\n        '${v_event_id}' AS EVENT_id\r\n    ) AS\
+          \ variable\r\nCROSS JOIN (\r\n    SELECT\r\n        SESSIONPRODUCT_ID,\r\
+          \n        user_id,\r\n        api_username,\r\n        email,\r\n      \
+          \  first_name,\r\n        last_name,\r\n        total_time,\r\n        total_playing_time\r\
+          \n    FROM PROD_BRONZE_DB.LMS.ARCHIVED_EVENT_USER_WATCH_ACTIVITY_PER_SESSION\r\
+          \n) AS d;"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    SQL Script:
+      type: "sql-executor"
+      parameters:
+        componentName: "SQL Script"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: "TRUNCATE TABLE PROD_BRONZE_DB.LMS.ARCHIVED_EVENT_USER_WATCH_ACTIVITY_PER_SESSION;"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+  variables:
+    v_sessionproduct_id:
+      metadata:
+        type: "TEXT"
+        description: ""
+        scope: "COPIED"
+        visibility: "PUBLIC"
+      defaultValue: "jadjawkfjekjda"
+    v_event_id:
+      metadata:
+        type: "TEXT"
+        description: ""
+        scope: "SHARED"
+        visibility: "PUBLIC"
+      defaultValue: "xhsdakfas"
+design:
+  components:
+    Start:
+      position:
+        x: 0
+        "y": 0
+      tempMetlId: 1
+    Table Iterator:
+      position:
+        x: 150
+        "y": -20
+      tempMetlId: 2
+    Run Orchestration:
+      position:
+        x: 150
+        "y": -20
+      tempMetlId: 5
+    'correlating event data with user event watch history  ':
+      position:
+        x: 310
+        "y": 0
+      tempMetlId: 6
+    SQL Script:
+      position:
+        x: 470
+        "y": 0
+      tempMetlId: 7

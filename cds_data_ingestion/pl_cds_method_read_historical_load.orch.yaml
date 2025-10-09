@@ -6,11 +6,16 @@ pipeline:
       type: "start"
       transitions:
         unconditional:
-        - "Table Iterator"
+        - "Truncate table CDS_METHOD_AVAILABLE"
       parameters:
         componentName: "Start"
     Table Iterator:
       type: "table-iterator"
+      transitions:
+        success:
+        - "Log Method Available Ingestion"
+        failure:
+        - "Log Method Available API Failure"
       iterationTarget: "CDS API Method Read"
       parameters:
         componentName: "Table Iterator"
@@ -57,6 +62,88 @@ pipeline:
       postProcessing:
         updateOutputMessage:
         updateScalarVariables:
+    Log Method Available API Failure:
+      type: "sql-executor"
+      parameters:
+        componentName: "Log Method Available API Failure"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: |
+          -- Log failure to audit table with error details
+          INSERT INTO PROD_BRONZE_DB.CONFIG_SCH.CDS_AUDIT_LOG (
+              TABLE_NAME,
+              ROW_COUNT,
+              LOAD_TIME,
+              LOAD_STATUS,
+              LOAD_TYPE,
+              ERROR_MESSAGE
+          )
+          VALUES (
+              'CDS_METHOD_AVAILABLE',
+              -1,  -- Negative count indicates failure
+              CURRENT_TIMESTAMP,
+              'FAILED',  -- Load status indicating failure
+              'FULL LOAD',
+              'Failed: Unknown error occurred during CDS CDS_METHOD_AVAILABLE API processing'
+          );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Log Method Available Ingestion:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Data Parser Method Available"
+      parameters:
+        componentName: "Log Method Available Ingestion"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include all"
+        sqlScript: "-- Log success to audit table\nINSERT INTO PROD_BRONZE_DB.CONFIG_SCH.CDS_AUDIT_LOG\
+          \ (\n    TABLE_NAME,\n    ROW_COUNT,\n    LOAD_TIME,\n    LOAD_STATUS,\n\
+          \    LOAD_TYPE,\n    ERROR_MESSAGE\n)\nSELECT \n    'CDS_METHOD_AVAILABLE'\
+          \ AS TABLE_NAME,\n    COUNT(*) AS ROW_COUNT,\n    CURRENT_TIMESTAMP AS LOAD_TIME,\n\
+          \    'SUCCESS' AS LOAD_STATUS,\n    'FULL LOAD' AS LOAD_TYPE,\n    NULL\
+          \ AS ERROR_MESSAGE\nFROM PROD_BRONZE_DB.CDS.CDS_METHOD_AVAILABLE;\n"
+    Truncate table CDS_METHOD_AVAILABLE:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Table Iterator"
+      parameters:
+        componentName: "Truncate table CDS_METHOD_AVAILABLE"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: "TRUNCATE TABLE PROD_BRONZE_DB.CDS.CDS_METHOD_AVAILABLE;"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Data Parser Method Available:
+      type: "sql-executor"
+      skipped: false
+      parameters:
+        componentName: "Data Parser Method Available"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: "MERGE INTO prod_silver_db.CDS.CDS_METHOD_AVAILABLE AS target\r\
+          \nUSING (\r\n    SELECT \r\n        f.value:EventPK::NUMBER AS EventPK,\r\
+          \n        f.value:Key::NUMBER AS Key,\r\n        f.value:LongName::STRING\
+          \ AS LongName,\r\n        f.value:MethodId::NUMBER AS MethodId,\r\n    \
+          \    f.value:ShortName::STRING AS ShortName\r\n    FROM prod_bronze_db.CDS.CDS_METHOD_AVAILABLE\
+          \ m,\r\n    LATERAL FLATTEN(input => m.\"AvailableDtos\") f\r\n) AS source\r\
+          \nON target.MethodId = source.MethodId\r\n\r\n-- WHEN MATCHED THEN\r\n--\
+          \     UPDATE SET \r\n--         target.EventPK = source.EventPK,\r\n-- \
+          \        target.LongName = source.LongName,\r\n--         target.MethodId\
+          \ = source.MethodId,\r\n--         target.ShortName = source.ShortName\r\
+          \n\r\nWHEN NOT MATCHED THEN\r\n    INSERT (\r\n        EventPK, Key, LongName,\
+          \ MethodId, ShortName\r\n    )\r\n    VALUES (\r\n        source.EventPK,\
+          \ source.Key, source.LongName, source.MethodId, source.ShortName\r\n   \
+          \ );\r\n"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
   variables:
     v_auth_key:
       metadata:
@@ -69,7 +156,7 @@ design:
   components:
     Start:
       position:
-        x: 0
+        x: -140
         "y": 0
       tempMetlId: 1
     Table Iterator:
@@ -82,3 +169,23 @@ design:
         x: 150
         "y": -20
       tempMetlId: 4
+    Log Method Available API Failure:
+      position:
+        x: 330
+        "y": -120
+      tempMetlId: 5
+    Log Method Available Ingestion:
+      position:
+        x: 330
+        "y": 0
+      tempMetlId: 6
+    Truncate table CDS_METHOD_AVAILABLE:
+      position:
+        x: 0
+        "y": 0
+      tempMetlId: 7
+    Data Parser Method Available:
+      position:
+        x: 480
+        "y": 0
+      tempMetlId: 8

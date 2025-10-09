@@ -1,0 +1,229 @@
+type: "orchestration"
+version: "1.0"
+pipeline:
+  components:
+    Start:
+      type: "start"
+      transitions:
+        unconditional:
+        - "CREATE PER SESSION TABLE"
+      parameters:
+        componentName: "Start"
+    Log Archieved event user activity Ingestion:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Data Parser Archieved event user activity"
+      parameters:
+        componentName: "Log Archieved event user activity Ingestion"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include all"
+        sqlScript: "-- Log success to audit table\nINSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG\
+          \ (\n    TABLE_NAME,\n    ROW_COUNT,\n    LOAD_TIME,\n    LOAD_STATUS,\n\
+          \    ERROR_MESSAGE\n)\nSELECT \n    'ARCHIVED_EVENT_USER_WATCH_ACTIVITY'\
+          \ AS TABLE_NAME,\n    COUNT(*) AS ROW_COUNT,\n    CURRENT_TIMESTAMP AS LOAD_TIME,\n\
+          \    'SUCCESS' AS LOAD_STATUS,\n    NULL AS ERROR_MESSAGE\nFROM PROD_BRONZE_DB.LMS.ARCHIVED_EVENT_USER_WATCH_ACTIVITY;\n"
+    Data Parser Archieved event user activity:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "drop per session table "
+      skipped: false
+      parameters:
+        componentName: "Data Parser Archieved event user activity"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: "MERGE INTO PROD_SILVER_DB.LMS.ARCHIVED_EVENT_USER_WATCH_ACTIVITY\
+          \ AS target\r\nUSING PROD_BRONZE_DB.LMS.ARCHIVED_EVENT_USER_WATCH_ACTIVITY\
+          \ AS source\r\nON target.user_id = source.user_id\r\n\r\n-- WHEN MATCHED\
+          \ THEN UPDATE SET\r\n--   target.api_username = source.api_username,\r\n\
+          --   target.email = source.email,\r\n--   target.first_name = source.first_name,\r\
+          \n--   target.last_name = source.last_name,\r\n--   target.total_time =\
+          \ source.total_time,\r\n--   target.total_playing_time = source.total_playing_time\r\
+          \n\r\nWHEN NOT MATCHED THEN INSERT (\r\n  EVENT_ID,SESSIONPRODUCT_ID,user_id,\
+          \ api_username, email, first_name, last_name, total_time, total_playing_time\r\
+          \n) VALUES (\r\n  source.EVENT_ID,source.SESSIONPRODUCT_ID,source.user_id,\
+          \ source.api_username, source.email, source.first_name, source.last_name,\r\
+          \n  source.total_time, source.total_playing_time\r\n);"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Log Archieved event user activity API Failure:
+      type: "sql-executor"
+      parameters:
+        componentName: "Log Archieved event user activity API Failure"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: |
+          -- Log failure to audit table with error details
+          INSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG (
+              TABLE_NAME,
+              ROW_COUNT,
+              LOAD_TIME,
+              LOAD_STATUS,
+              ERROR_MESSAGE
+          )
+          VALUES (
+              'ARCHIVED_EVENT_USER_WATCH_ACTIVITY',
+              -1,  -- Negative count indicates failure
+              CURRENT_TIMESTAMP,
+              'FAILED',  -- Load status indicating failure
+              'Failed: Unknown error occurred during LMS ARCHIVED_EVENT_USER_WATCH_ACTIVITY API processing'
+          );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Run Orchestration:
+      type: "run-orchestration"
+      parameters:
+        componentName: "Run Orchestration"
+        orchestrationJob: "lms_data_ingestion/LMS Historical data ingestion/pl_lms_archieved_event_user_watch_activity_transformation.orch.yaml"
+        setScalarVariables:
+        - - "v_event_id"
+          - "${v_event_id}"
+        setGridVariables:
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Table Iterator on event_id:
+      type: "table-iterator"
+      transitions:
+        success:
+        - "Log Archieved event user activity Ingestion"
+        failure:
+        - "Log Archieved event user activity API Failure"
+      iterationTarget: "Run Orchestration"
+      parameters:
+        componentName: "Table Iterator on event_id"
+        mode: "Advanced"
+        query: "select distinct event_id from PROD_BRONZE_DB.LMS.EVENT_SESSION_DETAILS"
+        concurrency: "Sequential"
+        columnMapping1:
+        - - "EVENT_ID"
+          - "v_event_id"
+        breakOnFailure: "No"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Truncate Table Archieved event user activity:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Table Iterator on event_id"
+      skipped: false
+      parameters:
+        componentName: "Truncate Table Archieved event user activity"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: "TRUNCATE TABLE PROD_BRONZE_DB.LMS.ARCHIVED_EVENT_USER_WATCH_ACTIVITY;"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    CREATE PER SESSION TABLE:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Truncate Table Archieved event user activity"
+      skipped: false
+      parameters:
+        componentName: "CREATE PER SESSION TABLE"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: "create or replace TABLE PROD_BRONZE_DB.LMS.ARCHIVED_EVENT_USER_WATCH_ACTIVITY_PER_SESSION\
+          \ (\r\n\tSESSIONPRODUCT_ID VARCHAR(502),\r\n\tUSER_ID VARCHAR(16777216),\r\
+          \n\tAPI_USERNAME VARCHAR(16777216),\r\n\tEMAIL VARCHAR(16777216),\r\n\t\
+          FIRST_NAME VARCHAR(16777216),\r\n\tLAST_NAME VARCHAR(16777216),\r\n\tTOTAL_TIME\
+          \ NUMBER(38,0),\r\n\tTOTAL_PLAYING_TIME NUMBER(38,0)\r\n);"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    'drop per session table ':
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Drop raw table "
+      parameters:
+        componentName: "drop per session table "
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: "drop table PROD_BRONZE_DB.LMS.ARCHIVED_EVENT_USER_WATCH_ACTIVITY_PER_SESSION;"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    'Drop raw table ':
+      type: "sql-executor"
+      skipped: false
+      parameters:
+        componentName: "Drop raw table "
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: "DROP TABLE PROD_BRONZE_DB.LMS.ARCHIVED_EVENT_USER_WATCH_ACTIVITY_RAW;"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+  variables:
+    v_event_id:
+      metadata:
+        type: "TEXT"
+        description: ""
+        scope: "SHARED"
+        visibility: "PUBLIC"
+      defaultValue: "xhsdakfas"
+design:
+  components:
+    Start:
+      position:
+        x: -310
+        "y": 0
+      tempMetlId: 1
+    Log Archieved event user activity Ingestion:
+      position:
+        x: 320
+        "y": 0
+      tempMetlId: 3
+    Data Parser Archieved event user activity:
+      position:
+        x: 480
+        "y": 0
+      tempMetlId: 4
+    Log Archieved event user activity API Failure:
+      position:
+        x: 320
+        "y": -120
+      tempMetlId: 5
+    Run Orchestration:
+      position:
+        x: 140
+        "y": 0
+      tempMetlId: 7
+    Table Iterator on event_id:
+      position:
+        x: 140
+        "y": -20
+      tempMetlId: 8
+    Truncate Table Archieved event user activity:
+      position:
+        x: -10
+        "y": 0
+      tempMetlId: 9
+    CREATE PER SESSION TABLE:
+      position:
+        x: -170
+        "y": 0
+      tempMetlId: 11
+    'drop per session table ':
+      position:
+        x: 640
+        "y": 0
+      tempMetlId: 12
+    'Drop raw table ':
+      position:
+        x: 800
+        "y": 0
+      tempMetlId: 13

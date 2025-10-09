@@ -6,11 +6,16 @@ pipeline:
       type: "start"
       transitions:
         unconditional:
-        - "Table Iterator"
+        - "Truncate table CDS_REGISTRANTS_DATA"
       parameters:
         componentName: "Start"
     Table Iterator:
       type: "table-iterator"
+      transitions:
+        success:
+        - "Log Registrant Read Ingestion"
+        failure:
+        - "Log Registrant Read API Failure"
       iterationTarget: "CDS API Registrant Read"
       parameters:
         componentName: "Table Iterator"
@@ -57,6 +62,84 @@ pipeline:
       postProcessing:
         updateOutputMessage:
         updateScalarVariables:
+    Truncate table CDS_REGISTRANTS_DATA:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Table Iterator"
+      parameters:
+        componentName: "Truncate table CDS_REGISTRANTS_DATA"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: "TRUNCATE TABLE PROD_BRONZE_DB.CDS.CDS_REGISTRANTS_DATA;"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Log Registrant Read Ingestion:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Data Parser Registrant Read"
+      parameters:
+        componentName: "Log Registrant Read Ingestion"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include all"
+        sqlScript: "-- Log success to audit table\nINSERT INTO PROD_BRONZE_DB.CONFIG_SCH.CDS_AUDIT_LOG\
+          \ (\n    TABLE_NAME,\n    ROW_COUNT,\n    LOAD_TIME,\n    LOAD_STATUS,\n\
+          \    LOAD_TYPE,\n    ERROR_MESSAGE\n)\nSELECT \n    'CDS_REGISTRANTS_DATA'\
+          \ AS TABLE_NAME,\n    COUNT(*) AS ROW_COUNT,\n    CURRENT_TIMESTAMP AS LOAD_TIME,\n\
+          \    'SUCCESS' AS LOAD_STATUS,\n    'FULL LOAD' AS LOAD_TYPE,\n    NULL\
+          \ AS ERROR_MESSAGE\nFROM PROD_BRONZE_DB.CDS.CDS_REGISTRANTS_DATA;\n"
+    Log Registrant Read API Failure:
+      type: "sql-executor"
+      parameters:
+        componentName: "Log Registrant Read API Failure"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: |
+          -- Log failure to audit table with error details
+          INSERT INTO PROD_BRONZE_DB.CONFIG_SCH.CDS_AUDIT_LOG (
+              TABLE_NAME,
+              ROW_COUNT,
+              LOAD_TIME,
+              LOAD_STATUS,
+              LOAD_TYPE,
+              ERROR_MESSAGE
+          )
+          VALUES (
+              'CDS_REGISTRANTS_DATA',
+              -1,  -- Negative count indicates failure
+              CURRENT_TIMESTAMP,
+              'FAILED',  -- Load status indicating failure
+              'FULL LOAD',
+              'Failed: Unknown error occurred during CDS CDS_REGISTRANTS_DATA API processing'
+          );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Data Parser Registrant Read:
+      type: "sql-executor"
+      skipped: false
+      parameters:
+        componentName: "Data Parser Registrant Read"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: "MERGE INTO PROD_Silver_DB.CDS.CDS_REGISTRANTS_DATA AS target\r\
+          \nUSING (\r\n    SELECT \r\n        f.value:EventCode::STRING AS EventCode,\r\
+          \n        TO_TIMESTAMP(f.value:RegTimeStamp::STRING) AS RegTimeStamp\r\n\
+          \    FROM PROD_BRONZE_DB.CDS.CDS_REGISTRANTS_DATA r,\r\n    LATERAL FLATTEN(input\
+          \ => r.\"RegRecords\") f\r\n) AS source\r\nON target.EventCode = source.EventCode\
+          \ AND target.RegTimeStamp = source.RegTimeStamp\r\n\r\n-- WHEN MATCHED THEN\r\
+          \n--     UPDATE SET \r\n--         target.EventCode = source.EventCode,\r\
+          \n--         target.RegTimeStamp = source.RegTimeStamp\r\n\r\nWHEN NOT MATCHED\
+          \ THEN\r\n    INSERT (EventCode, RegTimeStamp)\r\n    VALUES (source.EventCode,\
+          \ source.RegTimeStamp);"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
   variables:
     v_auth_key:
       metadata:
@@ -69,7 +152,7 @@ design:
   components:
     Start:
       position:
-        x: 0
+        x: -120
         "y": 0
       tempMetlId: 1
     Table Iterator:
@@ -82,3 +165,23 @@ design:
         x: 150
         "y": -20
       tempMetlId: 3
+    Truncate table CDS_REGISTRANTS_DATA:
+      position:
+        x: 0
+        "y": 0
+      tempMetlId: 4
+    Log Registrant Read Ingestion:
+      position:
+        x: 330
+        "y": 0
+      tempMetlId: 5
+    Log Registrant Read API Failure:
+      position:
+        x: 330
+        "y": -100
+      tempMetlId: 6
+    Data Parser Registrant Read:
+      position:
+        x: 490
+        "y": 0
+      tempMetlId: 7

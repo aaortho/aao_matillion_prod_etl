@@ -1,0 +1,198 @@
+type: "orchestration"
+version: "1.0"
+pipeline:
+  components:
+    Start:
+      type: "start"
+      transitions:
+        unconditional:
+        - "LMS ACCREDITATION"
+      parameters:
+        componentName: "Start"
+    LMS ACCREDITATION:
+      type: "modular-api-extract-input-v2"
+      transitions:
+        success:
+        - "Log Accreditation Ingestion"
+        failure:
+        - "Log Accreditation API Failure"
+      parameters:
+        componentName: "LMS ACCREDITATION"
+        componentId: "custom_v2-b95fee52-8db0-4fe4-94d1-623e1ca69a28"
+        inputId: "api-extract-input-v2"
+        api-extract-input-v2:
+          profile: "custom-b95fee52-8db0-4fe4-94d1-623e1ca69a28"
+          endpoint: "Accreditation"
+          connectionRef:
+            overrides:
+              authType: "NONE"
+          uriParams:
+          queryParams:
+          - name: "start_date"
+            value: "${v_starttime}"
+          - name: "end_date"
+            value: "${v_endtime}"
+          headerParams:
+          postBody:
+          pageLimit: ""
+          logLevel: "ERROR"
+          loadSelectedData: "No"
+        outputId: "snowflake-output-connector-v0"
+        snowflake-output-connector-v0:
+          warehouse: "[Environment Default]"
+          database: "[Environment Default]"
+          schema: "LMS"
+          tableName: "ACCREDITATION"
+          createTableMode: "TRUNCATE_AND_INSERT"
+          cleanStagedFiles: "Yes"
+          stagePlatform: "SNOWFLAKE"
+          snowflake#internalStageType: "USER"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Log Accreditation Ingestion:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Data Parser Accreditation"
+      parameters:
+        componentName: "Log Accreditation Ingestion"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include all"
+        sqlScript: "-- Log success to audit table\nINSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG\
+          \ (\n    TABLE_NAME,\n    ROW_COUNT,\n    LOAD_TIME,\n    LOAD_STATUS,\n\
+          \    ERROR_MESSAGE\n)\nSELECT \n    'ACCREDITATION' AS TABLE_NAME,\n   \
+          \ COUNT(*) AS ROW_COUNT,\n    CURRENT_TIMESTAMP AS LOAD_TIME,\n    'SUCCESS'\
+          \ AS LOAD_STATUS,\n    NULL AS ERROR_MESSAGE\nFROM PROD_BRONZE_DB.LMS.ACCREDITATION;\n"
+    Data Parser Accreditation:
+      type: "sql-executor"
+      skipped: false
+      parameters:
+        componentName: "Data Parser Accreditation"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: "MERGE INTO PROD_SILVER_DB.LMS.ACCREDITATION AS target\r\nUSING\
+          \ (\r\n    SELECT \r\n        record.value:id::STRING AS id,\r\n       \
+          \ record.value:awarded_on AS awarded_on,\r\n        record.value:certificate_id::STRING\
+          \ AS certificate_id,\r\n\r\n        record.value:user.id::STRING AS user_id,\r\
+          \n        record.value:user.email::STRING AS user_email,\r\n        record.value:user.api_username::STRING\
+          \ AS api_username,\r\n        record.value:user.first_name::STRING AS first_name,\r\
+          \n        record.value:user.last_name::STRING AS last_name,\r\n\r\n    \
+          \    record.value:related_test.test_id::STRING AS test_id,\r\n        record.value:related_test.test_type::STRING\
+          \ AS test_type,\r\n        record.value:related_test.score_percentage::NUMBER\
+          \ AS score_percentage,\r\n        record.value:related_test.attempts::NUMBER\
+          \ AS attempts,\r\n        record.value:related_test.completed_on AS completed_on,\r\
+          \n\r\n        record.value:related_test.product.id::STRING AS product_id,\r\
+          \n        record.value:related_test.product.name::STRING AS product_name,\r\
+          \n        record.value:related_test.product.type::STRING AS product_type,\r\
+          \n        record.value:related_test.product.identification::STRING AS product_identification,\r\
+          \n        record.value:related_test.product.api_key::STRING AS product_api_key,\r\
+          \n\r\n        credit.value:type_id::STRING AS credit_type_id,\r\n      \
+          \  credit.value:name::STRING AS credit_name,\r\n        credit.value:unit::STRING\
+          \ AS credit_unit,\r\n        credit.value:amount::FLOAT AS credit_amount\r\
+          \n    FROM PROD_BRONZE_DB.LMS.ACCREDITATION,\r\n         LATERAL FLATTEN(input\
+          \ => DATA_VALUE:records) AS record,\r\n         LATERAL FLATTEN(input =>\
+          \ record.value:credits) AS credit\r\n) AS source\r\nON target.id = source.id\
+          \ \r\n\r\nWHEN MATCHED THEN\r\n    UPDATE SET\r\n        target.awarded_on\
+          \ = source.awarded_on,\r\n        target.certificate_id = source.certificate_id,\r\
+          \n        target.user_id = source.user_id,\r\n        target.user_email\
+          \ = source.user_email,\r\n        target.api_username = source.api_username,\r\
+          \n        target.first_name = source.first_name,\r\n        target.last_name\
+          \ = source.last_name,\r\n        target.test_id = source.test_id,\r\n  \
+          \      target.test_type = source.test_type,\r\n        target.score_percentage\
+          \ = source.score_percentage,\r\n        target.attempts = source.attempts,\r\
+          \n        target.completed_on = source.completed_on,\r\n        target.product_id\
+          \ = source.product_id,\r\n        target.product_name = source.product_name,\r\
+          \n        target.product_type = source.product_type,\r\n        target.product_identification\
+          \ = source.product_identification,\r\n        target.product_api_key = source.product_api_key,\r\
+          \n        target.credit_name = source.credit_name,\r\n        target.credit_unit\
+          \ = source.credit_unit,\r\n        target.credit_amount = source.credit_amount\r\
+          \n\r\nWHEN NOT MATCHED THEN\r\n    INSERT (\r\n        id,\r\n        awarded_on,\r\
+          \n        certificate_id,\r\n        user_id,\r\n        user_email,\r\n\
+          \        api_username,\r\n        first_name,\r\n        last_name,\r\n\
+          \        test_id,\r\n        test_type,\r\n        score_percentage,\r\n\
+          \        attempts,\r\n        completed_on,\r\n        product_id,\r\n \
+          \       product_name,\r\n        product_type,\r\n        product_identification,\r\
+          \n        product_api_key,\r\n        credit_type_id,\r\n        credit_name,\r\
+          \n        credit_unit,\r\n        credit_amount\r\n    )\r\n    VALUES (\r\
+          \n        source.id,\r\n        source.awarded_on,\r\n        source.certificate_id,\r\
+          \n        source.user_id,\r\n        source.user_email,\r\n        source.api_username,\r\
+          \n        source.first_name,\r\n        source.last_name,\r\n        source.test_id,\r\
+          \n        source.test_type,\r\n        source.score_percentage,\r\n    \
+          \    source.attempts,\r\n        source.completed_on,\r\n        source.product_id,\r\
+          \n        source.product_name,\r\n        source.product_type,\r\n     \
+          \   source.product_identification,\r\n        source.product_api_key,\r\n\
+          \        source.credit_type_id,\r\n        source.credit_name,\r\n     \
+          \   source.credit_unit,\r\n        source.credit_amount\r\n    );"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Log Accreditation API Failure:
+      type: "sql-executor"
+      parameters:
+        componentName: "Log Accreditation API Failure"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: |
+          -- Log failure to audit table with error details
+          INSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG (
+              TABLE_NAME,
+              ROW_COUNT,
+              LOAD_TIME,
+              LOAD_STATUS,
+              ERROR_MESSAGE
+          )
+          VALUES (
+              'ACCREDITATION',
+              -1,  -- Negative count indicates failure
+              CURRENT_TIMESTAMP,
+              'FAILED',  -- Load status indicating failure
+              'Failed: Unknown error occurred during LMS Accreditation API processing'
+          );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+  variables:
+    v_endtime:
+      metadata:
+        type: "TEXT"
+        description: ""
+        scope: "COPIED"
+        visibility: "PUBLIC"
+      defaultValue: "2019-01-01T00:00:00Z"
+    v_starttime:
+      metadata:
+        type: "TEXT"
+        description: ""
+        scope: "COPIED"
+        visibility: "PUBLIC"
+      defaultValue: "2000-01-01T00:00:00Z"
+design:
+  components:
+    Start:
+      position:
+        x: 0
+        "y": 0
+      tempMetlId: 1
+    LMS ACCREDITATION:
+      position:
+        x: 160
+        "y": 0
+      tempMetlId: 2
+    Log Accreditation Ingestion:
+      position:
+        x: 320
+        "y": 0
+      tempMetlId: 3
+    Data Parser Accreditation:
+      position:
+        x: 500
+        "y": 0
+      tempMetlId: 4
+    Log Accreditation API Failure:
+      position:
+        x: 320
+        "y": -90
+      tempMetlId: 5

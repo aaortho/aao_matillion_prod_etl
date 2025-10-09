@@ -1,0 +1,99 @@
+type: "orchestration"
+version: "1.0"
+pipeline:
+  components:
+    Start:
+      type: "start"
+      transitions:
+        unconditional:
+        - "LMS API"
+      parameters:
+        componentName: "Start"
+    LMS API:
+      type: "modular-api-extract-input-v2"
+      transitions:
+        success:
+        - "correlating event data with session data "
+      parameters:
+        componentName: "LMS API"
+        componentId: "custom_v2-b95fee52-8db0-4fe4-94d1-623e1ca69a28"
+        inputId: "api-extract-input-v2"
+        api-extract-input-v2:
+          profile: "custom-b95fee52-8db0-4fe4-94d1-623e1ca69a28"
+          endpoint: "Event_session_details"
+          connectionRef:
+            overrides:
+              authType: "NONE"
+          uriParams:
+          - name: "eventId"
+            value: "${v_event_id}"
+          queryParams:
+          headerParams:
+          postBody:
+          pageLimit:
+          logLevel: "ERROR"
+          loadSelectedData: "No"
+        outputId: "snowflake-output-connector-v0"
+        snowflake-output-connector-v0:
+          warehouse: "[Environment Default]"
+          database: "[Environment Default]"
+          schema: "LMS"
+          tableName: "EVENT_SESSION_DETAILS_RAW"
+          createTableMode: "TRUNCATE_AND_INSERT"
+          cleanStagedFiles: "Yes"
+          stagePlatform: "SNOWFLAKE"
+          snowflake#internalStageType: "USER"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    'correlating event data with session data ':
+      type: "sql-executor"
+      parameters:
+        componentName: "correlating event data with session data "
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        - "v_event_id"
+        sqlScript: "-- Create temporary table with cross join of variable and LMS\
+          \ data\nINSERT INTO PROD_BRONZE_DB.LMS.EVENT_SESSION_DETAILS\nSELECT \n\
+          \    variable.variable_value AS EVENT_ID,\n    v.SESSION_ID,\n    v.EVAL_ID,\n\
+          \    v.START_TIME,\n    v.END_TIME,\n    v.TIMEZONE,\n    v.PRODUCT_ID,\n\
+          \    v.PRODUCT_IDENTIFICATION,\n    v.PRODUCT_NAME,\n    v.PRODUCT_TYPE,\n\
+          \    v.SESSION_TITLE\nFROM \n    (SELECT '${v_event_id}' AS variable_value)\
+          \ AS variable\nCROSS JOIN (\n    SELECT \n        item.value:id::STRING\
+          \ AS SESSION_ID,\n        item.value:eval_id::STRING AS EVAL_ID,\n     \
+          \   item.value:start_date_time::STRING AS START_TIME,\n        item.value:end_date_time::STRING\
+          \ AS END_TIME,\n        item.value:offset::STRING AS TIMEZONE,\n       \
+          \ item.value:product:id::STRING AS PRODUCT_ID,\n        item.value:product:identification::STRING\
+          \ AS PRODUCT_IDENTIFICATION,\n        item.value:product:name::STRING AS\
+          \ PRODUCT_NAME,\n        item.value:product:type::STRING AS PRODUCT_TYPE,\n\
+          \        item.value:title::STRING AS SESSION_TITLE\n    FROM PROD_BRONZE_DB.LMS.EVENT_SESSION_DETAILS_RAW,\n\
+          \         LATERAL FLATTEN(input => DATA_VALUE:data) AS item\n) AS v;"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+  variables:
+    v_event_id:
+      metadata:
+        type: "TEXT"
+        description: ""
+        scope: "COPIED"
+        visibility: "PUBLIC"
+      defaultValue: "a"
+design:
+  components:
+    Start:
+      position:
+        x: 0
+        "y": 0
+      tempMetlId: 1
+    LMS API:
+      position:
+        x: 140
+        "y": 0
+      tempMetlId: 3
+    'correlating event data with session data ':
+      position:
+        x: 290
+        "y": 0
+      tempMetlId: 4

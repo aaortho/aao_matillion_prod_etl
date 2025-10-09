@@ -1,0 +1,164 @@
+type: "orchestration"
+version: "1.0"
+pipeline:
+  components:
+    Start:
+      type: "start"
+      transitions:
+        unconditional:
+        - "LMS PRODUCTS"
+      parameters:
+        componentName: "Start"
+    LMS PRODUCTS:
+      type: "modular-api-extract-input-v2"
+      transitions:
+        success:
+        - "Log Products Ingestion"
+        failure:
+        - "Log Products API Failure"
+      parameters:
+        componentName: "LMS PRODUCTS"
+        componentId: "custom_v2-b95fee52-8db0-4fe4-94d1-623e1ca69a28"
+        inputId: "api-extract-input-v2"
+        api-extract-input-v2:
+          profile: "custom-b95fee52-8db0-4fe4-94d1-623e1ca69a28"
+          endpoint: "Products"
+          connectionRef:
+            overrides:
+              authType: "NONE"
+          uriParams:
+          queryParams:
+          headerParams:
+          postBody:
+          pageLimit:
+          logLevel: "ERROR"
+          loadSelectedData: "No"
+        outputId: "snowflake-output-connector-v0"
+        snowflake-output-connector-v0:
+          warehouse: "[Environment Default]"
+          database: "[Environment Default]"
+          schema: "LMS"
+          tableName: "PRODUCTS"
+          createTableMode: "TRUNCATE_AND_INSERT"
+          cleanStagedFiles: "Yes"
+          stagePlatform: "SNOWFLAKE"
+          snowflake#internalStageType: "USER"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Log Products Ingestion:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Data Parser Products"
+      parameters:
+        componentName: "Log Products Ingestion"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include all"
+        sqlScript: "-- Log success to audit table\nINSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG\
+          \ (\n    TABLE_NAME,\n    ROW_COUNT,\n    LOAD_TIME,\n    LOAD_STATUS,\n\
+          \    ERROR_MESSAGE\n)\nSELECT \n    'PRODUCTS' AS TABLE_NAME,\n    COUNT(*)\
+          \ AS ROW_COUNT,\n    CURRENT_TIMESTAMP AS LOAD_TIME,\n    'SUCCESS' AS LOAD_STATUS,\n\
+          \    NULL AS ERROR_MESSAGE\nFROM PROD_BRONZE_DB.LMS.PRODUCTS;\n"
+    Data Parser Products:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Product Details Pipeline"
+      parameters:
+        componentName: "Data Parser Products"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: "MERGE INTO PROD_SILVER_DB.LMS.PRODUCTS AS target\r\nUSING (\r\n\
+          \    SELECT\r\n        item.value:id::STRING AS id,\r\n        item.value:api_key::STRING\
+          \ AS api_key,\r\n        item.value:created_at::TIMESTAMP AS created_at,\r\
+          \n        item.value:description::STRING AS description,\r\n        item.value:discoverable::BOOLEAN\
+          \ AS discoverable,\r\n        item.value:icon_url::STRING AS icon_url,\r\
+          \n        item.value:identification::STRING AS identification,\r\n     \
+          \   item.value:name::STRING AS name,\r\n        item.value:status::STRING\
+          \ AS status,\r\n        item.value:teaser::STRING AS teaser,\r\n       \
+          \ item.value:type::STRING AS type\r\n    FROM PROD_BRONZE_DB.LMS.PRODUCTS,\r\
+          \n         LATERAL FLATTEN(input => DATA_VALUE:data) AS item\r\n) AS source\r\
+          \nON target.id = source.id\r\n\r\nWHEN MATCHED THEN\r\n    UPDATE SET\r\n\
+          \        target.api_key = source.api_key,\r\n        target.created_at =\
+          \ source.created_at,\r\n        target.description = source.description,\r\
+          \n        target.discoverable = source.discoverable,\r\n        target.icon_url\
+          \ = source.icon_url,\r\n        target.identification = source.identification,\r\
+          \n        target.name = source.name,\r\n        target.status = source.status,\r\
+          \n        target.teaser = source.teaser,\r\n        target.type = source.type\r\
+          \n\r\nWHEN NOT MATCHED THEN\r\n    INSERT (\r\n        id,\r\n        api_key,\r\
+          \n        created_at,\r\n        description,\r\n        discoverable,\r\
+          \n        icon_url,\r\n        identification,\r\n        name,\r\n    \
+          \    status,\r\n        teaser,\r\n        type\r\n    )\r\n    VALUES (\r\
+          \n        source.id,\r\n        source.api_key,\r\n        source.created_at,\r\
+          \n        source.description,\r\n        source.discoverable,\r\n      \
+          \  source.icon_url,\r\n        source.identification,\r\n        source.name,\r\
+          \n        source.status,\r\n        source.teaser,\r\n        source.type\r\
+          \n    );\r\n"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Log Products API Failure:
+      type: "sql-executor"
+      parameters:
+        componentName: "Log Products API Failure"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: |
+          -- Log failure to audit table with error details
+          INSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG (
+              TABLE_NAME,
+              ROW_COUNT,
+              LOAD_TIME,
+              LOAD_STATUS,
+              ERROR_MESSAGE
+          )
+          VALUES (
+              'PRODUCTS',
+              -1,  -- Negative count indicates failure
+              CURRENT_TIMESTAMP,
+              'FAILED',  -- Load status indicating failure
+              'Failed: Unknown error occurred during LMS Products API processing'
+          );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Product Details Pipeline:
+      type: "run-orchestration"
+      parameters:
+        componentName: "Product Details Pipeline"
+        orchestrationJob: "lms_data_ingestion/pl_lms_product_details_historical_load.orch.yaml"
+design:
+  components:
+    Start:
+      position:
+        x: 0
+        "y": 0
+      tempMetlId: 1
+    LMS PRODUCTS:
+      position:
+        x: 160
+        "y": 0
+      tempMetlId: 2
+    Log Products Ingestion:
+      position:
+        x: 320
+        "y": 0
+      tempMetlId: 3
+    Data Parser Products:
+      position:
+        x: 480
+        "y": 0
+      tempMetlId: 4
+    Log Products API Failure:
+      position:
+        x: 320
+        "y": -80
+      tempMetlId: 5
+    Product Details Pipeline:
+      position:
+        x: 640
+        "y": 0
+      tempMetlId: 6

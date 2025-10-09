@@ -6,11 +6,16 @@ pipeline:
       type: "start"
       transitions:
         unconditional:
-        - "Table Iterator"
+        - "Truncate table CDS_REGISTRATION_CATEGORY"
       parameters:
         componentName: "Start"
     Table Iterator:
       type: "table-iterator"
+      transitions:
+        success:
+        - "Log Registration Category Ingestion"
+        failure:
+        - "Log Registration Category API Failure"
       iterationTarget: "CDS API Registration Category"
       parameters:
         componentName: "Table Iterator"
@@ -57,6 +62,88 @@ pipeline:
       postProcessing:
         updateOutputMessage:
         updateScalarVariables:
+    Log Registration Category Ingestion:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Data Parser Registration Category"
+      parameters:
+        componentName: "Log Registration Category Ingestion"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include all"
+        sqlScript: "-- Log success to audit table\nINSERT INTO PROD_BRONZE_DB.CONFIG_SCH.CDS_AUDIT_LOG\
+          \ (\n    TABLE_NAME,\n    ROW_COUNT,\n    LOAD_TIME,\n    LOAD_STATUS,\n\
+          \    LOAD_TYPE,\n    ERROR_MESSAGE\n)\nSELECT \n    'CDS_REGISTRATION_CATEGORY'\
+          \ AS TABLE_NAME,\n    COUNT(*) AS ROW_COUNT,\n    CURRENT_TIMESTAMP AS LOAD_TIME,\n\
+          \    'SUCCESS' AS LOAD_STATUS,\n    'FULL LOAD' AS LOAD_TYPE,\n    NULL\
+          \ AS ERROR_MESSAGE\nFROM PROD_BRONZE_DB.CDS.CDS_REGISTRATION_CATEGORY;\n"
+    Log Registration Category API Failure:
+      type: "sql-executor"
+      parameters:
+        componentName: "Log Registration Category API Failure"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: |
+          -- Log failure to audit table with error details
+          INSERT INTO PROD_BRONZE_DB.CONFIG_SCH.CDS_AUDIT_LOG (
+              TABLE_NAME,
+              ROW_COUNT,
+              LOAD_TIME,
+              LOAD_STATUS,
+              LOAD_TYPE,
+              ERROR_MESSAGE
+          )
+          VALUES (
+              'CDS_REGISTRATION_CATEGORY',
+              -1,  -- Negative count indicates failure
+              CURRENT_TIMESTAMP,
+              'FAILED',  -- Load status indicating failure
+              'FULL LOAD',
+              'Failed: Unknown error occurred during CDS CDS_REGISTRATION_CATEGORY API processing'
+          );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Data Parser Registration Category:
+      type: "sql-executor"
+      skipped: false
+      parameters:
+        componentName: "Data Parser Registration Category"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: "MERGE INTO PROD_SILVER_DB.CDS.CDS_REGISTRATION_CATEGORY AS target\r\
+          \nUSING (\r\n    SELECT \r\n        f.value:RegistrationCategoryCode::STRING\
+          \ AS RegistrationCategoryCode,\r\n        f.value:CategoryDescription::STRING\
+          \ AS CategoryDescription,\r\n        f.value:Grouping::STRING AS Grouping,\r\
+          \n        f.value:IsAttending::BOOLEAN AS IsAttending\r\n    FROM PROD_BRONZE_DB.CDS.CDS_REGISTRATION_CATEGORY\
+          \ r,\r\n    LATERAL FLATTEN(input => r.\"RegistrationCategoryRecords\")\
+          \ f\r\n) AS source\r\nON target.RegistrationCategoryCode = source.RegistrationCategoryCode\r\
+          \n\r\n-- WHEN MATCHED THEN\r\n--     UPDATE SET \r\n--         target.CategoryDescription\
+          \ = source.CategoryDescription,\r\n--         target.Grouping = source.Grouping,\r\
+          \n--         target.IsAttending = source.IsAttending\r\n\r\nWHEN NOT MATCHED\
+          \ THEN\r\n    INSERT (\r\n        RegistrationCategoryCode, CategoryDescription,\
+          \ Grouping, IsAttending\r\n    )\r\n    VALUES (\r\n        source.RegistrationCategoryCode,\
+          \ source.CategoryDescription, source.Grouping, source.IsAttending\r\n  \
+          \  );"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Truncate table CDS_REGISTRATION_CATEGORY:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Table Iterator"
+      parameters:
+        componentName: "Truncate table CDS_REGISTRATION_CATEGORY"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: "TRUNCATE TABLE PROD_BRONZE_DB.CDS.CDS_REGISTRATION_CATEGORY;"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
   variables:
     v_auth_key:
       metadata:
@@ -69,7 +156,7 @@ design:
   components:
     Start:
       position:
-        x: 0
+        x: -110
         "y": 0
       tempMetlId: 1
     Table Iterator:
@@ -82,3 +169,23 @@ design:
         x: 160
         "y": -20
       tempMetlId: 3
+    Log Registration Category Ingestion:
+      position:
+        x: 330
+        "y": 0
+      tempMetlId: 4
+    Log Registration Category API Failure:
+      position:
+        x: 330
+        "y": -90
+      tempMetlId: 5
+    Data Parser Registration Category:
+      position:
+        x: 500
+        "y": 0
+      tempMetlId: 6
+    Truncate table CDS_REGISTRATION_CATEGORY:
+      position:
+        x: 20
+        "y": 0
+      tempMetlId: 7

@@ -6,43 +6,17 @@ pipeline:
       type: "start"
       transitions:
         unconditional:
-        - "Trncate Event Session details table"
+        - "Trncate Event Session details table "
       parameters:
         componentName: "Start"
-    LMS API:
-      type: "modular-api-extract-input-v2"
+    Run Event Session Transform:
+      type: "run-orchestration"
       parameters:
-        componentName: "LMS API"
-        componentId: "custom_v2-b95fee52-8db0-4fe4-94d1-623e1ca69a28"
-        inputId: "api-extract-input-v2"
-        api-extract-input-v2:
-          profile: "custom-b95fee52-8db0-4fe4-94d1-623e1ca69a28"
-          endpoint: "Event_session_details"
-          connectionRef:
-            overrides:
-              authType: "NONE"
-          uriParams:
-          - name: "eventId"
-            value: "${v_event_id}"
-          queryParams:
-          headerParams:
-          postBody:
-          pageLimit:
-          logLevel: "ERROR"
-          loadSelectedData: "No"
-        outputId: "snowflake-output-connector-v0"
-        snowflake-output-connector-v0:
-          warehouse: "[Environment Default]"
-          database: "[Environment Default]"
-          schema: "LMS"
-          tableName: "EVENT_SESSION_DETAILS"
-          createTableMode: "APPEND"
-          cleanStagedFiles: "Yes"
-          stagePlatform: "SNOWFLAKE"
-          snowflake#internalStageType: "USER"
-      postProcessing:
-        updateOutputMessage:
-        updateScalarVariables:
+        componentName: "Run Event Session Transform"
+        orchestrationJob: "lms_data_ingestion/LMS Historical data ingestion/pl_lms_event_session_details_transformation.orch.yaml"
+        setScalarVariables:
+        - - "v_event_id"
+          - "${v_event_id}"
     Table Iterator:
       type: "table-iterator"
       transitions:
@@ -50,13 +24,13 @@ pipeline:
         - "Log event session detail ingestion"
         failure:
         - "Log LMS API Failure"
-      iterationTarget: "LMS API"
+      iterationTarget: "Run Event Session Transform"
       parameters:
         componentName: "Table Iterator"
         mode: "Advanced"
         query: "SELECT\r\n    item.value:id::STRING AS id\r\nFROM PROD_BRONZE_DB.LMS.EVENTS,\r\
           \n     LATERAL FLATTEN(input => DATA_VALUE:data) AS item"
-        concurrency: "Concurrent"
+        concurrency: "Sequential"
         columnMapping1:
         - - "ID"
           - "v_event_id"
@@ -84,32 +58,22 @@ pipeline:
         updateScalarVariables:
     'Data Parser Event Session ':
       type: "sql-executor"
+      transitions:
+        success:
+        - "drop event session details raw table "
       parameters:
         componentName: "Data Parser Event Session "
         scriptLocation: "Component"
         declareSqlVariables: "Include selected"
         variablesToInclude:
-        sqlScript: |
+        sqlScript: |-
           MERGE INTO PROD_SILVER_DB.LMS.EVENT_SESSION_DETAILS AS target
-          USING (
-              SELECT
-                  item.value:id::STRING AS SESSION_ID,
-                  item.value:eval_id::STRING AS EVAL_ID,
-                  item.value:start_date_time::STRING AS START_TIME,
-                  item.value:end_date_time::STRING AS END_TIME,
-                  item.value:offset::STRING AS TIMEZONE,
-                  item.value:product:id::STRING AS PRODUCT_ID,
-                  item.value:product:identification::STRING AS PRODUCT_IDENTIFICATION,
-                  item.value:product:name::STRING AS PRODUCT_NAME,
-                  item.value:product:type::STRING AS PRODUCT_TYPE,
-                  item.value:title::STRING AS SESSION_TITLE
-              FROM PROD_BRONZE_DB.LMS.EVENT_SESSION_DETAILS,
-                   LATERAL FLATTEN(input => DATA_VALUE:data) AS item
-          ) AS source
+          USING PROD_BRONZE_DB.LMS.EVENT_SESSION_DETAILS AS source
           ON target.SESSION_ID = source.SESSION_ID
 
           WHEN MATCHED THEN
               UPDATE SET
+                  target.EVENT_ID = source.EVENT_ID,
                   target.EVAL_ID = source.EVAL_ID,
                   target.START_TIME = source.START_TIME,
                   target.END_TIME = source.END_TIME,
@@ -122,6 +86,7 @@ pipeline:
 
           WHEN NOT MATCHED THEN
               INSERT (
+                  EVENT_ID,
                   SESSION_ID,
                   EVAL_ID,
                   START_TIME,
@@ -134,6 +99,7 @@ pipeline:
                   SESSION_TITLE
               )
               VALUES (
+                  source.EVENT_ID,
                   source.SESSION_ID,
                   source.EVAL_ID,
                   source.START_TIME,
@@ -145,20 +111,6 @@ pipeline:
                   source.PRODUCT_TYPE,
                   source.SESSION_TITLE
               );
-      postProcessing:
-        updateOutputMessage:
-        updateScalarVariables:
-    Trncate Event Session details table:
-      type: "sql-executor"
-      transitions:
-        success:
-        - "Table Iterator"
-      parameters:
-        componentName: "Trncate Event Session details table"
-        scriptLocation: "Component"
-        declareSqlVariables: "Include selected"
-        variablesToInclude:
-        sqlScript: "TRUNCATE TABLE PROD_BRONZE_DB.LMS.EVENT_SESSION_DETAILS;"
       postProcessing:
         updateOutputMessage:
         updateScalarVariables:
@@ -188,6 +140,31 @@ pipeline:
       postProcessing:
         updateOutputMessage:
         updateScalarVariables:
+    'Trncate Event Session details table ':
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Table Iterator"
+      parameters:
+        componentName: "Trncate Event Session details table "
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: "TRUNCATE TABLE PROD_BRONZE_DB.LMS.EVENT_SESSION_DETAILS;"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    'drop event session details raw table ':
+      type: "sql-executor"
+      parameters:
+        componentName: "drop event session details raw table "
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: "drop table PROD_BRONZE_DB.LMS.EVENT_SESSION_DETAILS_RAW;"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
   variables:
     v_event_id:
       metadata:
@@ -203,7 +180,7 @@ design:
         x: -380
         "y": 20
       tempMetlId: 1
-    LMS API:
+    Run Event Session Transform:
       position:
         x: -120
         "y": 0
@@ -223,13 +200,18 @@ design:
         x: 140
         "y": 20
       tempMetlId: 7
-    Trncate Event Session details table:
-      position:
-        x: -250
-        "y": 20
-      tempMetlId: 8
     Log LMS API Failure:
       position:
         x: 80
         "y": -80
       tempMetlId: 9
+    'Trncate Event Session details table ':
+      position:
+        x: -260
+        "y": 20
+      tempMetlId: 10
+    'drop event session details raw table ':
+      position:
+        x: 270
+        "y": 20
+      tempMetlId: 11

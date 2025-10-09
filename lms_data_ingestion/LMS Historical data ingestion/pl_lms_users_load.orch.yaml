@@ -1,0 +1,134 @@
+type: "orchestration"
+version: "1.0"
+pipeline:
+  components:
+    Start:
+      type: "start"
+      transitions:
+        unconditional:
+        - "LMS USERS"
+      parameters:
+        componentName: "Start"
+    LMS USERS:
+      type: "modular-api-extract-input-v2"
+      transitions:
+        success:
+        - "Log Users Ingestion"
+        failure:
+        - "Log Users API Failure"
+      parameters:
+        componentName: "LMS USERS"
+        componentId: "custom_v2-b95fee52-8db0-4fe4-94d1-623e1ca69a28"
+        inputId: "api-extract-input-v2"
+        api-extract-input-v2:
+          profile: "custom-b95fee52-8db0-4fe4-94d1-623e1ca69a28"
+          endpoint: "Users"
+          connectionRef:
+            overrides:
+              authType: "NONE"
+          uriParams:
+          queryParams:
+          headerParams:
+          postBody:
+          pageLimit:
+          logLevel: "ERROR"
+          loadSelectedData: "No"
+        outputId: "snowflake-output-connector-v0"
+        snowflake-output-connector-v0:
+          warehouse: "[Environment Default]"
+          database: "[Environment Default]"
+          schema: "LMS"
+          tableName: "USERS"
+          createTableMode: "TRUNCATE_AND_INSERT"
+          cleanStagedFiles: "Yes"
+          stagePlatform: "SNOWFLAKE"
+          snowflake#internalStageType: "USER"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Log Users Ingestion:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Data Parser Users"
+      parameters:
+        componentName: "Log Users Ingestion"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include all"
+        sqlScript: "-- Log success to audit table\nINSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG\
+          \ (\n    TABLE_NAME,\n    ROW_COUNT,\n    LOAD_TIME,\n    LOAD_STATUS,\n\
+          \    ERROR_MESSAGE\n)\nSELECT \n    'USERS' AS TABLE_NAME,\n    COUNT(*)\
+          \ AS ROW_COUNT,\n    CURRENT_TIMESTAMP AS LOAD_TIME,\n    'SUCCESS' AS LOAD_STATUS,\n\
+          \    NULL AS ERROR_MESSAGE\nFROM PROD_BRONZE_DB.LMS.USERS;\n"
+    Data Parser Users:
+      type: "sql-executor"
+      parameters:
+        componentName: "Data Parser Users"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: "MERGE INTO PROD_SILVER_DB.LMS.USERS AS target\r\nUSING (\r\n \
+          \   SELECT\r\n        item.value:id::STRING AS user_id,\r\n        item.value:api_username::STRING\
+          \ AS api_username,\r\n        item.value:email::STRING AS email,\r\n   \
+          \     item.value:first_name::STRING AS first_name,\r\n        item.value:last_name::STRING\
+          \ AS last_name\r\n    FROM PROD_BRONZE_DB.LMS.USERS,\r\n         LATERAL\
+          \ FLATTEN(input => DATA_VALUE:data) AS item\r\n) AS source\r\nON target.user_id\
+          \ = source.user_id\r\n\r\nWHEN MATCHED THEN\r\n    UPDATE SET\r\n      \
+          \  target.api_username = source.api_username,\r\n        target.email =\
+          \ source.email,\r\n        target.first_name = source.first_name,\r\n  \
+          \      target.last_name = source.last_name\r\n\r\nWHEN NOT MATCHED THEN\r\
+          \n    INSERT (\r\n        user_id,\r\n        api_username,\r\n        email,\r\
+          \n        first_name,\r\n        last_name\r\n    )\r\n    VALUES (\r\n\
+          \        source.user_id,\r\n        source.api_username,\r\n        source.email,\r\
+          \n        source.first_name,\r\n        source.last_name\r\n    );\r\n"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Log Users API Failure:
+      type: "sql-executor"
+      parameters:
+        componentName: "Log Users API Failure"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: |
+          -- Log failure to audit table with error details
+          INSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG (
+              TABLE_NAME,
+              ROW_COUNT,
+              LOAD_TIME,
+              LOAD_STATUS,
+              ERROR_MESSAGE
+          )
+          VALUES (
+              'USERS',
+              -1,  -- Negative count indicates failure
+              CURRENT_TIMESTAMP,
+              'FAILED',  -- Load status indicating failure
+              'Failed: Unknown error occurred during LMS Users API processing'
+          );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+design:
+  components:
+    Start:
+      position:
+        x: 0
+        "y": 0
+    LMS USERS:
+      position:
+        x: 160
+        "y": 0
+    Log Users Ingestion:
+      position:
+        x: 320
+        "y": 0
+    Data Parser Users:
+      position:
+        x: 480
+        "y": 0
+    Log Users API Failure:
+      position:
+        x: 320
+        "y": -80

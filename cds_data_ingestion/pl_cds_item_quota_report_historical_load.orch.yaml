@@ -6,11 +6,16 @@ pipeline:
       type: "start"
       transitions:
         unconditional:
-        - "Table Iterator"
+        - "Truncate table CDS_ITEM_QUOTA_REPORT"
       parameters:
         componentName: "Start"
     Table Iterator:
       type: "table-iterator"
+      transitions:
+        success:
+        - "Log Item Quota Report Ingestion"
+        failure:
+        - "Log Item Quota Report API Failure "
       iterationTarget: "CDS API Item Quota Report"
       parameters:
         componentName: "Table Iterator"
@@ -57,6 +62,96 @@ pipeline:
       postProcessing:
         updateOutputMessage:
         updateScalarVariables:
+    'Log Item Quota Report API Failure ':
+      type: "sql-executor"
+      parameters:
+        componentName: "Log Item Quota Report API Failure "
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: |
+          -- Log failure to audit table with error details
+          INSERT INTO PROD_BRONZE_DB.CONFIG_SCH.CDS_AUDIT_LOG (
+              TABLE_NAME,
+              ROW_COUNT,
+              LOAD_TIME,
+              LOAD_STATUS,
+              LOAD_TYPE,
+              ERROR_MESSAGE
+          )
+          VALUES (
+              'CDS_ITEM_QUOTA_REPORT',
+              -1,  -- Negative count indicates failure
+              CURRENT_TIMESTAMP,
+              'FAILED',  -- Load status indicating failure
+              'FULL LOAD',
+              'Failed: Unknown error occurred during CDS CDS_ITEM_QUOTA_REPORT API processing'
+          );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Log Item Quota Report Ingestion:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Data Parser Item Quota Report"
+      parameters:
+        componentName: "Log Item Quota Report Ingestion"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include all"
+        sqlScript: "-- Log success to audit table\nINSERT INTO PROD_BRONZE_DB.CONFIG_SCH.CDS_AUDIT_LOG\
+          \ (\n    TABLE_NAME,\n    ROW_COUNT,\n    LOAD_TIME,\n    LOAD_STATUS,\n\
+          \    LOAD_TYPE,\n    ERROR_MESSAGE\n)\nSELECT \n    'CDS_ITEM_QUOTA_REPORT'\
+          \ AS TABLE_NAME,\n    COUNT(*) AS ROW_COUNT,\n    CURRENT_TIMESTAMP AS LOAD_TIME,\n\
+          \    'SUCCESS' AS LOAD_STATUS,\n    'FULL LOAD' AS LOAD_TYPE,\n    NULL\
+          \ AS ERROR_MESSAGE\nFROM PROD_BRONZE_DB.CDS.CDS_ITEM_QUOTA_REPORT;\n"
+    Data Parser Item Quota Report:
+      type: "sql-executor"
+      skipped: true
+      parameters:
+        componentName: "Data Parser Item Quota Report"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: "MERGE INTO prod_silver_db.CDS.CDS_ITEM_PRICING AS target\r\nUSING\
+          \ (\r\n    SELECT \r\n        f.value:ItemCode::STRING AS ItemCode,\r\n\
+          \        f.value:ItemPriceStatus::BOOLEAN AS ItemPriceStatus,\r\n      \
+          \  f.value:Key::NUMBER AS Key,\r\n        f.value:OnsiteVisible::BOOLEAN\
+          \ AS OnsiteVisible,\r\n        f.value:Price::NUMBER AS Price,\r\n     \
+          \   f.value:Tier1::STRING AS Tier1,\r\n        f.value:Tier2::STRING AS\
+          \ Tier2,\r\n        f.value:Tier3::STRING AS Tier3,\r\n        f.value:Tier4::STRING\
+          \ AS Tier4,\r\n        f.value:Tier5::STRING AS Tier5\r\n    FROM prod_bronze_db.CDS.CDS_ITEM_PRICING\
+          \ p,\r\n    LATERAL FLATTEN(input => p.\"ItemPriceDefinitionRecords\") f\r\
+          \n) AS source\r\nON target.Key = source.Key\r\n\r\nWHEN MATCHED THEN\r\n\
+          \    UPDATE SET \r\n        target.ItemCode = source.ItemCode,\r\n     \
+          \   target.ItemPriceStatus = source.ItemPriceStatus,\r\n        target.OnsiteVisible\
+          \ = source.OnsiteVisible,\r\n        target.Price = source.Price,\r\n  \
+          \      target.Tier1 = source.Tier1,\r\n        target.Tier2 = source.Tier2,\r\
+          \n        target.Tier3 = source.Tier3,\r\n        target.Tier4 = source.Tier4,\r\
+          \n        target.Tier5 = source.Tier5\r\n\r\nWHEN NOT MATCHED THEN\r\n \
+          \   INSERT (\r\n        ItemCode, ItemPriceStatus, Key, OnsiteVisible, Price,\r\
+          \n        Tier1, Tier2, Tier3, Tier4, Tier5\r\n    )\r\n    VALUES (\r\n\
+          \        source.ItemCode, source.ItemPriceStatus, source.Key, source.OnsiteVisible,\
+          \ source.Price,\r\n        source.Tier1, source.Tier2, source.Tier3, source.Tier4,\
+          \ source.Tier5\r\n    );\r\n"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Truncate table CDS_ITEM_QUOTA_REPORT:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Table Iterator"
+      skipped: true
+      parameters:
+        componentName: "Truncate table CDS_ITEM_QUOTA_REPORT"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: "TRUNCATE TABLE PROD_BRONZE_DB.CDS.CDS_ITEM_QUOTA_REPORT;"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
   variables:
     v_auth_key:
       metadata:
@@ -69,7 +164,7 @@ design:
   components:
     Start:
       position:
-        x: 0
+        x: -120
         "y": 0
       tempMetlId: 1
     Table Iterator:
@@ -82,3 +177,23 @@ design:
         x: 140
         "y": -20
       tempMetlId: 3
+    'Log Item Quota Report API Failure ':
+      position:
+        x: 350
+        "y": -100
+      tempMetlId: 4
+    Log Item Quota Report Ingestion:
+      position:
+        x: 350
+        "y": 0
+      tempMetlId: 5
+    Data Parser Item Quota Report:
+      position:
+        x: 500
+        "y": 0
+      tempMetlId: 6
+    Truncate table CDS_ITEM_QUOTA_REPORT:
+      position:
+        x: -10
+        "y": 0
+      tempMetlId: 7
