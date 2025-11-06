@@ -1,0 +1,192 @@
+type: "orchestration"
+version: "1.0"
+pipeline:
+  components:
+    Start:
+      type: "start"
+      transitions:
+        unconditional:
+        - "get last run date time"
+      parameters:
+        componentName: "Start"
+    Log Speakers Ingestion:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Data Parser Speakers"
+      parameters:
+        componentName: "Log Speakers Ingestion"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include all"
+        sqlScript: "-- Log success to audit table\nINSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG\
+          \ (\n    TABLE_NAME,\n    ROW_COUNT,\n    LOAD_TIME,\n    LOAD_STATUS,\n\
+          \    ERROR_MESSAGE\n)\nSELECT \n    'SPEAKERS' AS TABLE_NAME,\n    COUNT(*)\
+          \ AS ROW_COUNT,\n    CURRENT_TIMESTAMP AS LOAD_TIME,\n    'SUCCESS' AS LOAD_STATUS,\n\
+          \    NULL AS ERROR_MESSAGE\nFROM PROD_BRONZE_DB.LMS.SPEAKERS;\n"
+    Data Parser Speakers:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Run pl_lms_speaker_details_incremental_load"
+      parameters:
+        componentName: "Data Parser Speakers"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: "MERGE INTO PROD_SILVER_DB.LMS.SPEAKERS AS target\r\nUSING (\r\n\
+          \    SELECT\r\n        item.value:uuid::STRING AS uuid,\r\n        item.value:api_key::STRING\
+          \ AS api_key,\r\n        item.value:email::STRING AS email,\r\n        item.value:first_name::STRING\
+          \ AS first_name,\r\n        item.value:last_name::STRING AS last_name,\r\
+          \n        item.value:identification::STRING AS identification\r\n    FROM\
+          \ PROD_BRONZE_DB.LMS.SPEAKERS,\r\n         LATERAL FLATTEN(input => DATA_VALUE:data)\
+          \ AS item\r\n) AS source\r\nON target.uuid = source.uuid\r\n\r\nWHEN MATCHED\
+          \ THEN\r\n    UPDATE SET\r\n        target.api_key = source.api_key,\r\n\
+          \        target.email = source.email,\r\n        target.first_name = source.first_name,\r\
+          \n        target.last_name = source.last_name,\r\n        target.identification\
+          \ = source.identification\r\n\r\nWHEN NOT MATCHED THEN\r\n    INSERT (\r\
+          \n        uuid,\r\n        api_key,\r\n        email,\r\n        first_name,\r\
+          \n        last_name,\r\n        identification\r\n    )\r\n    VALUES (\r\
+          \n        source.uuid,\r\n        source.api_key,\r\n        source.email,\r\
+          \n        source.first_name,\r\n        source.last_name,\r\n        source.identification\r\
+          \n    );\r\n"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Log Speakers API Failure:
+      type: "sql-executor"
+      parameters:
+        componentName: "Log Speakers API Failure"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: |
+          -- Log failure to audit table with error details
+          INSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG (
+              TABLE_NAME,
+              ROW_COUNT,
+              LOAD_TIME,
+              LOAD_STATUS,
+              ERROR_MESSAGE
+          )
+          VALUES (
+              'SPEAKERS',
+              -1,  -- Negative count indicates failure
+              CURRENT_TIMESTAMP,
+              'FAILED',  -- Load status indicating failure
+              'Failed: Unknown error occurred during LMS Speakers API processing'
+          );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    get last run date time:
+      type: "query-to-scalar"
+      transitions:
+        success:
+        - "LMS incremental"
+      parameters:
+        componentName: "get last run date time"
+        mode: "Advanced"
+        query: "SELECT \r\n    TABLE_NAME, \r\n    TO_CHAR(MAX(LOAD_TIME), 'YYYY-MM-DD\"\
+          T\"HH24:MI:SS\"Z\"') AS LAST_LOAD_TIME\r\nFROM \r\n    PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG\r\
+          \nWHERE \r\n    TABLE_NAME = 'SPEAKERS'\r\n    AND LOAD_STATUS = 'SUCCESS'\r\
+          \nGROUP BY \r\n    TABLE_NAME\r\nORDER BY \r\n    LAST_LOAD_TIME DESC"
+        scalarVariableMapping:
+        - - "v_modified_after"
+          - "LAST_LOAD_TIME"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    LMS incremental:
+      type: "modular-api-extract-input-v2"
+      transitions:
+        success:
+        - "Log Speakers Ingestion"
+        failure:
+        - "Log Speakers API Failure"
+      parameters:
+        componentName: "LMS incremental"
+        componentId: "custom_v2-01ba2d07-e6ae-413d-a524-b9f50f046c72"
+        inputId: "api-extract-input-v2"
+        api-extract-input-v2:
+          profile: "custom-01ba2d07-e6ae-413d-a524-b9f50f046c72"
+          endpoint: "Speakers incremental"
+          connectionRef:
+            overrides:
+              authType: "NONE"
+          uriParams:
+          queryParams:
+          - name: "modified_after"
+            value: "${v_modified_after}"
+          headerParams:
+          postBody:
+          pageLimit:
+          logLevel: "ERROR"
+          loadSelectedData: "No"
+        outputId: "snowflake-output-connector-v0"
+        snowflake-output-connector-v0:
+          warehouse: "[Environment Default]"
+          database: "[Environment Default]"
+          schema: "LMS"
+          tableName: "SPEAKERS"
+          createTableMode: "TRUNCATE_AND_INSERT"
+          cleanStagedFiles: "Yes"
+          stagePlatform: "SNOWFLAKE"
+          snowflake#internalStageType: "USER"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Run pl_lms_speaker_details_incremental_load:
+      type: "run-orchestration"
+      parameters:
+        componentName: "Run pl_lms_speaker_details_incremental_load"
+        orchestrationJob: "lms_data_ingestion/LMS Incremental Data Ingestion/pl_lms_speaker_details_incremental_load.orch.yaml"
+        setScalarVariables:
+        setGridVariables:
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+  variables:
+    v_modified_after:
+      metadata:
+        type: "TEXT"
+        description: ""
+        scope: "COPIED"
+        visibility: "PUBLIC"
+      defaultValue: "2025-10-13T00:35:23.362Z"
+design:
+  components:
+    Start:
+      position:
+        x: -110
+        "y": 0
+      tempMetlId: 1
+    Data Parser Speakers:
+      position:
+        x: 480
+        "y": 0
+      tempMetlId: 4
+    Log Speakers Ingestion:
+      position:
+        x: 320
+        "y": 0
+      tempMetlId: 3
+    Log Speakers API Failure:
+      position:
+        x: 380
+        "y": -110
+      tempMetlId: 5
+    get last run date time:
+      position:
+        x: 30
+        "y": 0
+      tempMetlId: 7
+    LMS incremental:
+      position:
+        x: 180
+        "y": 0
+      tempMetlId: 8
+    Run pl_lms_speaker_details_incremental_load:
+      position:
+        x: 640
+        "y": 0
+      tempMetlId: 9

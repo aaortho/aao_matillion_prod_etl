@@ -1,0 +1,217 @@
+type: "orchestration"
+version: "1.0"
+pipeline:
+  components:
+    Start:
+      type: "start"
+      transitions:
+        unconditional:
+        - "get last run date time"
+      parameters:
+        componentName: "Start"
+    Log Events Ingestion:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Data Parser Events"
+      parameters:
+        componentName: "Log Events Ingestion"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include all"
+        sqlScript: "-- Log success to audit table\nINSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG\
+          \ (\n    TABLE_NAME,\n    ROW_COUNT,\n    LOAD_TIME,\n    LOAD_STATUS,\n\
+          \    ERROR_MESSAGE\n)\nSELECT \n    'EVENTS' AS TABLE_NAME,\n    COUNT(*)\
+          \ AS ROW_COUNT,\n    CURRENT_TIMESTAMP AS LOAD_TIME,\n    'SUCCESS' AS LOAD_STATUS,\n\
+          \    NULL AS ERROR_MESSAGE\nFROM PROD_BRONZE_DB.LMS.EVENTS;\n"
+    Data Parser Events:
+      type: "sql-executor"
+      transitions:
+        success:
+        - "Event Session Details Pipeline"
+      parameters:
+        componentName: "Data Parser Events"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: "MERGE INTO PROD_SILVER_DB.LMS.EVENTS AS target\r\nUSING (\r\n\
+          \    SELECT\r\n        item.value:id::STRING AS id,\r\n        item.value:name::STRING\
+          \ AS name,\r\n        item.value:identification::STRING AS identification,\r\
+          \n        item.value:api_key::STRING AS api_key,\r\n        item.value:start_date::TIMESTAMP\
+          \ AS start_date,\r\n        item.value:end_date::TIMESTAMP AS end_date\r\
+          \n    FROM PROD_BRONZE_DB.LMS.EVENTS,\r\n         LATERAL FLATTEN(input\
+          \ => DATA_VALUE:data) AS item\r\n) AS source\r\nON target.id = source.id\r\
+          \n\r\nWHEN MATCHED THEN\r\n    UPDATE SET\r\n        target.name = source.name,\r\
+          \n        target.identification = source.identification,\r\n        target.api_key\
+          \ = source.api_key,\r\n        target.start_date = source.start_date,\r\n\
+          \        target.end_date = source.end_date\r\n\r\nWHEN NOT MATCHED THEN\r\
+          \n    INSERT (\r\n        id,\r\n        name,\r\n        identification,\r\
+          \n        api_key,\r\n        start_date,\r\n        end_date\r\n    )\r\
+          \n    VALUES (\r\n        source.id,\r\n        source.name,\r\n       \
+          \ source.identification,\r\n        source.api_key,\r\n        source.start_date,\r\
+          \n        source.end_date\r\n    );\r\n"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Log Events API Failure:
+      type: "sql-executor"
+      parameters:
+        componentName: "Log Events API Failure"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: |
+          -- Log failure to audit table with error details
+          INSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG (
+              TABLE_NAME,
+              ROW_COUNT,
+              LOAD_TIME,
+              LOAD_STATUS,
+              ERROR_MESSAGE
+          )
+          VALUES (
+              'EVENTS',
+              -1,  -- Negative count indicates failure
+              CURRENT_TIMESTAMP,
+              'FAILED',  -- Load status indicating failure
+              'Failed: Unknown error occurred during LMS Events API processing'
+          );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Event Session Details Pipeline:
+      type: "run-orchestration"
+      parameters:
+        componentName: "Event Session Details Pipeline"
+        orchestrationJob: "lms_data_ingestion/LMS Incremental Data Ingestion/pl_lms_event_session_details_incremental_load.orch.yaml"
+    LMS incremental:
+      type: "modular-api-extract-input-v2"
+      transitions:
+        success:
+        - "Log Events Ingestion"
+        failure:
+        - "Log Events API Failure"
+      parameters:
+        componentName: "LMS incremental"
+        componentId: "custom_v2-01ba2d07-e6ae-413d-a524-b9f50f046c72"
+        inputId: "api-extract-input-v2"
+        api-extract-input-v2:
+          profile: "custom-01ba2d07-e6ae-413d-a524-b9f50f046c72"
+          endpoint: "Events incremental"
+          connectionRef:
+            overrides:
+              authType: "NONE"
+          uriParams:
+          queryParams:
+          - name: "start_date"
+            value: "${v_start_date}"
+          - name: "end_date"
+            value: "${v_end_date}"
+          headerParams:
+          postBody:
+          pageLimit:
+          logLevel: "ERROR"
+          loadSelectedData: "No"
+        outputId: "snowflake-output-connector-v0"
+        snowflake-output-connector-v0:
+          warehouse: "[Environment Default]"
+          database: "[Environment Default]"
+          schema: "LMS"
+          tableName: "EVENTS"
+          createTableMode: "TRUNCATE_AND_INSERT"
+          cleanStagedFiles: "Yes"
+          stagePlatform: "SNOWFLAKE"
+          snowflake#internalStageType: "USER"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    get current date time:
+      type: "query-to-scalar"
+      transitions:
+        success:
+        - "LMS incremental"
+      parameters:
+        componentName: "get current date time"
+        mode: "Advanced"
+        query: "SELECT TO_CHAR(CURRENT_TIMESTAMP(), 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"\
+          ') AS CURRENT_TIME"
+        scalarVariableMapping:
+        - - "v_end_date"
+          - "CURRENT_TIME"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    get last run date time:
+      type: "query-to-scalar"
+      transitions:
+        success:
+        - "get current date time"
+      parameters:
+        componentName: "get last run date time"
+        mode: "Advanced"
+        query: "SELECT \r\n    TABLE_NAME, \r\n    TO_CHAR(MAX(LOAD_TIME), 'YYYY-MM-DD\"\
+          T\"HH24:MI:SS\"Z\"') AS LAST_LOAD_TIME\r\nFROM \r\n    PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG\r\
+          \nWHERE \r\n    TABLE_NAME = 'EVENTS'\r\n    AND LOAD_STATUS = 'SUCCESS'\r\
+          \nGROUP BY \r\n    TABLE_NAME\r\nORDER BY \r\n    LAST_LOAD_TIME DESC"
+        scalarVariableMapping:
+        - - "v_start_date"
+          - "LAST_LOAD_TIME"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+  variables:
+    v_start_date:
+      metadata:
+        type: "TEXT"
+        description: ""
+        scope: "COPIED"
+        visibility: "PUBLIC"
+      defaultValue: "a"
+    v_end_date:
+      metadata:
+        type: "TEXT"
+        description: ""
+        scope: "COPIED"
+        visibility: "PUBLIC"
+      defaultValue: "a"
+design:
+  components:
+    Start:
+      position:
+        x: -290
+        "y": 0
+      tempMetlId: 1
+    Log Events Ingestion:
+      position:
+        x: 320
+        "y": 0
+      tempMetlId: 3
+    Data Parser Events:
+      position:
+        x: 480
+        "y": 0
+      tempMetlId: 4
+    Event Session Details Pipeline:
+      position:
+        x: 640
+        "y": 0
+      tempMetlId: 6
+    Log Events API Failure:
+      position:
+        x: 320
+        "y": -80
+      tempMetlId: 5
+    LMS incremental:
+      position:
+        x: 160
+        "y": 0
+      tempMetlId: 7
+    get current date time:
+      position:
+        x: 20
+        "y": 0
+      tempMetlId: 8
+    get last run date time:
+      position:
+        x: -140
+        "y": 0
+      tempMetlId: 9

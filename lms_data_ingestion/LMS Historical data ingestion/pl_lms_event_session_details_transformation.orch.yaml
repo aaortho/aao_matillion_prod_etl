@@ -62,7 +62,7 @@ pipeline:
           \    v.SESSION_TITLE\nFROM \n    (SELECT '${v_event_id}' AS variable_value)\
           \ AS variable\nCROSS JOIN (\n    SELECT \n        item.value:id::STRING\
           \ AS SESSION_ID,\n        item.value:eval_id::STRING AS EVAL_ID,\n     \
-          \   item.value:start_date_time::STRING AS START_TIME,\n        item.value:end_date_time::STRING\
+          \   item.value:start_date_time::DATETIME AS START_TIME,\n        item.value:end_date_time::DATETIME\
           \ AS END_TIME,\n        item.value:offset::STRING AS TIMEZONE,\n       \
           \ item.value:product:id::STRING AS PRODUCT_ID,\n        item.value:product:identification::STRING\
           \ AS PRODUCT_IDENTIFICATION,\n        item.value:product:name::STRING AS\

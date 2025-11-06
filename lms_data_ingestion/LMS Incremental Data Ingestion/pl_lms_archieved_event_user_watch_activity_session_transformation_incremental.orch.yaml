@@ -1,0 +1,105 @@
+type: "orchestration"
+version: "1.0"
+pipeline:
+  components:
+    Start:
+      type: "start"
+      transitions:
+        unconditional:
+        - "LMS API"
+      parameters:
+        componentName: "Start"
+    LMS API:
+      type: "modular-api-extract-input-v2"
+      transitions:
+        success:
+        - "correlating session data with user event watch history  "
+      parameters:
+        componentName: "LMS API"
+        componentId: "custom_v2-b95fee52-8db0-4fe4-94d1-623e1ca69a28"
+        inputId: "api-extract-input-v2"
+        api-extract-input-v2:
+          profile: "custom-b95fee52-8db0-4fe4-94d1-623e1ca69a28"
+          endpoint: "List all user watch activity for an archived live event session\
+            \ videos"
+          connectionRef:
+            overrides:
+              authType: "NONE"
+          uriParams:
+          - name: "eventUuid"
+            value: "${v_event_id}"
+          - name: "sessionProductUuid"
+            value: "${v_sessionproduct_id}"
+          queryParams:
+          headerParams:
+          postBody:
+          pageLimit: ""
+          logLevel: "ERROR"
+          loadSelectedData: "No"
+        outputId: "snowflake-output-connector-v0"
+        snowflake-output-connector-v0:
+          warehouse: "[Environment Default]"
+          database: "[Environment Default]"
+          schema: "LMS"
+          tableName: "ARCHIVED_EVENT_USER_WATCH_ACTIVITY_RAW"
+          createTableMode: "TRUNCATE_AND_INSERT"
+          cleanStagedFiles: "Yes"
+          stagePlatform: "SNOWFLAKE"
+          snowflake#internalStageType: "USER"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    'correlating session data with user event watch history  ':
+      type: "sql-executor"
+      parameters:
+        componentName: "correlating session data with user event watch history  "
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: "INSERT INTO PROD_BRONZE_DB.LMS.ARCHIVED_EVENT_USER_WATCH_ACTIVITY_PER_SESSION\r\
+          \nSELECT \r\n    variable.sessionproduct_id AS SESSIONPRODUCT_ID,\r\n  \
+          \  d.user_id,\r\n    d.api_username,\r\n    d.email,\r\n    d.first_name,\r\
+          \n    d.last_name,\r\n    d.total_time,\r\n    d.total_playing_time\r\n\
+          FROM \r\n    (SELECT \r\n        '${v_sessionproduct_id}' AS sessionproduct_id\r\
+          \n    ) AS variable\r\nCROSS JOIN (\r\n    SELECT\r\n        data.value:user.id::STRING\
+          \ AS user_id,\r\n        data.value:user.api_username::STRING AS api_username,\r\
+          \n        data.value:user.email::STRING AS email,\r\n        data.value:user.first_name::STRING\
+          \ AS first_name,\r\n        data.value:user.last_name::STRING AS last_name,\r\
+          \n        data.value:total_time::NUMBER AS total_time,\r\n        data.value:total_playing_time::NUMBER\
+          \ AS total_playing_time\r\n    FROM PROD_BRONZE_DB.LMS.ARCHIVED_EVENT_USER_WATCH_ACTIVITY_RAW,\r\
+          \n         LATERAL FLATTEN(input => DATA_VALUE:data) AS data\r\n) AS d;"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+  variables:
+    v_sessionproduct_id:
+      metadata:
+        type: "TEXT"
+        description: ""
+        scope: "COPIED"
+        visibility: "PUBLIC"
+      defaultValue: "jadjawkfjekjda"
+    v_event_id:
+      metadata:
+        type: "TEXT"
+        description: ""
+        scope: "SHARED"
+        visibility: "PUBLIC"
+      defaultValue: "xhsdakfas"
+design:
+  components:
+    Start:
+      position:
+        x: 0
+        "y": 0
+      tempMetlId: 1
+    LMS API:
+      position:
+        x: 150
+        "y": 0
+      tempMetlId: 3
+    'correlating session data with user event watch history  ':
+      position:
+        x: 310
+        "y": 0
+      tempMetlId: 4

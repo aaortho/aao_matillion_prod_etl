@@ -79,7 +79,7 @@ pipeline:
       type: "run-orchestration"
       parameters:
         componentName: "Run Orchestration"
-        orchestrationJob: "lms_data_ingestion/LMS Historical data ingestion/pl_lms_archieved_event_user_watch_activity_transformation.orch.yaml"
+        orchestrationJob: "lms_data_ingestion/LMS Incremental Data Ingestion/pl_lms_archieved_event_user_watch_activity_transformation_incremental.orch.yaml"
         setScalarVariables:
         - - "v_event_id"
           - "${v_event_id}"

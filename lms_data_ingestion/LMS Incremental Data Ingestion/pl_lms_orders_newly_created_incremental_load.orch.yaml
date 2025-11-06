@@ -6,10 +6,28 @@ pipeline:
       type: "start"
       transitions:
         unconditional:
-        - "LMS ORDERS"
+        - "get last run date time"
       parameters:
         componentName: "Start"
-    LMS ORDERS:
+    get last run date time:
+      type: "query-to-scalar"
+      transitions:
+        success:
+        - "Orders incremental"
+      parameters:
+        componentName: "get last run date time"
+        mode: "Advanced"
+        query: "SELECT \r\n    TABLE_NAME, \r\n    TO_CHAR(MAX(LOAD_TIME), 'YYYY-MM-DD\"\
+          T\"HH24:MI:SS\"Z\"') AS LAST_LOAD_TIME\r\nFROM \r\n    PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG\r\
+          \nWHERE \r\n    TABLE_NAME = 'ORDERS CREATED'\r\n    AND LOAD_STATUS = 'SUCCESS'\r\
+          \nGROUP BY \r\n    TABLE_NAME\r\nORDER BY \r\n    LAST_LOAD_TIME DESC"
+        scalarVariableMapping:
+        - - "v_created_after"
+          - "LAST_LOAD_TIME"
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
+    Orders incremental:
       type: "modular-api-extract-input-v2"
       transitions:
         success:
@@ -17,17 +35,19 @@ pipeline:
         failure:
         - "Log Orders API Failure"
       parameters:
-        componentName: "LMS ORDERS"
-        componentId: "custom_v2-b95fee52-8db0-4fe4-94d1-623e1ca69a28"
+        componentName: "Orders incremental"
+        componentId: "custom_v2-01ba2d07-e6ae-413d-a524-b9f50f046c72"
         inputId: "api-extract-input-v2"
         api-extract-input-v2:
-          profile: "custom-b95fee52-8db0-4fe4-94d1-623e1ca69a28"
-          endpoint: "Orders"
+          profile: "custom-01ba2d07-e6ae-413d-a524-b9f50f046c72"
+          endpoint: "Orders incremental"
           connectionRef:
             overrides:
               authType: "NONE"
           uriParams:
           queryParams:
+          - name: "created_after"
+            value: "${v_created_after}"
           headerParams:
           postBody:
           pageLimit:
@@ -46,6 +66,32 @@ pipeline:
       postProcessing:
         updateOutputMessage:
         updateScalarVariables:
+    Log Orders API Failure:
+      type: "sql-executor"
+      parameters:
+        componentName: "Log Orders API Failure"
+        scriptLocation: "Component"
+        declareSqlVariables: "Include selected"
+        variablesToInclude:
+        sqlScript: |
+          -- Log failure to audit table with error details
+          INSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG (
+              TABLE_NAME,
+              ROW_COUNT,
+              LOAD_TIME,
+              LOAD_STATUS,
+              ERROR_MESSAGE
+          )
+          VALUES (
+              'ORDERS CREATED',
+              -1,  -- Negative count indicates failure
+              CURRENT_TIMESTAMP,
+              'FAILED',  -- Load status indicating failure
+              'Failed: Unknown error occurred during LMS Orders API processing'
+          );
+      postProcessing:
+        updateOutputMessage:
+        updateScalarVariables:
     Log Orders Ingestion:
       type: "sql-executor"
       transitions:
@@ -57,14 +103,14 @@ pipeline:
         declareSqlVariables: "Include all"
         sqlScript: "-- Log success to audit table\nINSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG\
           \ (\n    TABLE_NAME,\n    ROW_COUNT,\n    LOAD_TIME,\n    LOAD_STATUS,\n\
-          \    ERROR_MESSAGE\n)\nSELECT \n    'ORDERS' AS TABLE_NAME,\n    COUNT(*)\
-          \ AS ROW_COUNT,\n    CURRENT_TIMESTAMP AS LOAD_TIME,\n    'SUCCESS' AS LOAD_STATUS,\n\
-          \    NULL AS ERROR_MESSAGE\nFROM PROD_BRONZE_DB.LMS.ORDERS;\n"
+          \    ERROR_MESSAGE\n)\nSELECT \n    'ORDERS CREATED' AS TABLE_NAME,\n  \
+          \  COUNT(*) AS ROW_COUNT,\n    CURRENT_TIMESTAMP AS LOAD_TIME,\n    'SUCCESS'\
+          \ AS LOAD_STATUS,\n    NULL AS ERROR_MESSAGE\nFROM PROD_BRONZE_DB.LMS.ORDERS;\n"
     Data Parser Orders:
       type: "sql-executor"
       transitions:
         success:
-        - "Order Details Pipeline"
+        - "Run pl_lms_order_details_incremental_load"
       parameters:
         componentName: "Data Parser Orders"
         scriptLocation: "Component"
@@ -98,66 +144,58 @@ pipeline:
       postProcessing:
         updateOutputMessage:
         updateScalarVariables:
-    Log Orders API Failure:
-      type: "sql-executor"
+    Run pl_lms_order_details_incremental_load:
+      type: "run-orchestration"
       parameters:
-        componentName: "Log Orders API Failure"
-        scriptLocation: "Component"
-        declareSqlVariables: "Include selected"
-        variablesToInclude:
-        sqlScript: |
-          -- Log failure to audit table with error details
-          INSERT INTO PROD_BRONZE_DB.LMS.LMS_AUDIT_LOG (
-              TABLE_NAME,
-              ROW_COUNT,
-              LOAD_TIME,
-              LOAD_STATUS,
-              ERROR_MESSAGE
-          )
-          VALUES (
-              'ORDERS',
-              -1,  -- Negative count indicates failure
-              CURRENT_TIMESTAMP,
-              'FAILED',  -- Load status indicating failure
-              'Failed: Unknown error occurred during LMS Orders API processing'
-          );
+        componentName: "Run pl_lms_order_details_incremental_load"
+        orchestrationJob: "lms_data_ingestion/LMS Incremental Data Ingestion/pl_lms_order_details_incremental_load.orch.yaml"
+        setScalarVariables:
+        setGridVariables:
       postProcessing:
         updateOutputMessage:
         updateScalarVariables:
-    Order Details Pipeline:
-      type: "run-orchestration"
-      parameters:
-        componentName: "Order Details Pipeline"
-        orchestrationJob: "lms_data_ingestion/LMS Historical data ingestion/pl_lms_order_details_historical_load.orch.yaml"
+  variables:
+    v_created_after:
+      metadata:
+        type: "TEXT"
+        description: ""
+        scope: "COPIED"
+        visibility: "PUBLIC"
+      defaultValue: "2019-01-01T00:00:00Z"
 design:
   components:
     Start:
       position:
-        x: 0
-        "y": 0
+        x: -220
+        "y": -30
       tempMetlId: 1
-    LMS ORDERS:
+    get last run date time:
       position:
-        x: 160
-        "y": 0
-      tempMetlId: 2
-    Log Orders Ingestion:
-      position:
-        x: 320
-        "y": 0
+        x: -110
+        "y": -30
       tempMetlId: 3
-    Data Parser Orders:
+    Orders incremental:
       position:
-        x: 480
-        "y": 0
+        x: 40
+        "y": -30
       tempMetlId: 4
     Log Orders API Failure:
       position:
-        x: 320
-        "y": -80
-      tempMetlId: 5
-    Order Details Pipeline:
+        x: 240
+        "y": -140
+      tempMetlId: 10
+    Log Orders Ingestion:
       position:
-        x: 640
-        "y": 0
-      tempMetlId: 6
+        x: 200
+        "y": -30
+      tempMetlId: 11
+    Data Parser Orders:
+      position:
+        x: 350
+        "y": -30
+      tempMetlId: 12
+    Run pl_lms_order_details_incremental_load:
+      position:
+        x: 490
+        "y": -30
+      tempMetlId: 13

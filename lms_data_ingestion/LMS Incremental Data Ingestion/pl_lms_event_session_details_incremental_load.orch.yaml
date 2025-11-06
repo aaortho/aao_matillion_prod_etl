@@ -13,7 +13,7 @@ pipeline:
       type: "run-orchestration"
       parameters:
         componentName: "Run Event Session Transform"
-        orchestrationJob: "lms_data_ingestion/LMS Historical data ingestion/pl_lms_event_session_details_transformation.orch.yaml"
+        orchestrationJob: "lms_data_ingestion/LMS Incremental Data Ingestion/pl_lms_event_session_details_transformation_incremental.orch.yaml"
         setScalarVariables:
         - - "v_event_id"
           - "${v_event_id}"
